@@ -1,61 +1,58 @@
 import argparse
 import ipaddress
+import json
 import os
 import re
 import zipfile
-from typing import ClassVar
+from typing import ClassVar, dict, list
 
 
 class Redactor:
-    # Common regex patterns for email, IP, and phone number, and API tokens
-    # HOSTNAME_PATTERN = r"([a-zA-Z0-9]+(-[a-zA-Z0-9]+)*\.)+[a-zA-Z]{2,}"
-    ipv4_pattern=r"^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
-    ipv6_pattern=r"(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))"
-    phone_number_pattern = r"^\\+?\\d{1,4}?[-.\\s]?\\(?\\d{1,3}?\\)?[-.\\s]?\\d{1,4}[-.\\s]?\\d{1,4}[-.\\s]?\\d{1,9}$"
-    EMAIL_PATTERN = r"[\w\.-]+@[\w\.-]+\.\w+"
-    IPV4_PATTERN = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
-    PHONE_PATTERN = r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b"
-    URL_PATTERN = r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)"
-    HOSTNAME_PATTERN = r"(?!-)[a-z0-9-]{1,63}(?<!-)$"
-    API_TOKEN_PATTERNS: ClassVar[list[str]] = [
-        r"token=[^&\s]*",
-        r"key=[^&\s]*",
-        r"api=[^&\s]*",
-        r"apikey=[^&\s]*",
-        r"apitoken=[^&\s]*"
-    ]
+    """Class to redact sensitive information such as IPs, HOSTs, URLs, IPs, EMAILs, and API keys."""
 
-    def __init__(self, interactive=False):
+    PATTERNS: ClassVar[dict] = {
+        "email": re.compile(r"[\w\.-]+@[\w\.-]+\.\w+"),
+        "ipv4": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
+        "ipv6": re.compile(r"([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}"),
+        "phone": re.compile(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b"),
+        "url": re.compile(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)"),
+        "api": re.compile(r"(token|key|api|apikey|apitoken)=[^&\s]*")
+    }
+
+    def __init__(self, interactive: bool = False):
         self.interactive = interactive
-        self.secrets = self.get_lists("secrets.csv")
-        self.ignores = self.get_lists("ignore.csv")
+        self.secrets = self._load_lists("secrets.csv")
+        self.ignores = self._load_lists("ignore.csv")
+        self.unique_mapping = {}
+        self.ip_counter = 1
+        self.counter = {"email": 1, "phone": 1, "url": 1}
 
-        # Pre-compile all regex patterns
-        self.email_regex = re.compile(self.EMAIL_PATTERN)
-        self.ipv4_regex = re.compile(self.IPV4_PATTERN)
-        self.ipv6_regex = re.compile(self.IPV6_PATTERN)
-        self.url_regex = re.compile(self.URL_PATTERN)
-        self.hostname_regex = re.compile(self.HOSTNAME_PATTERN, re.IGNORECASE)
-        self.phone_regex = re.compile(self.PHONE_PATTERN)
-        self.api_token_regexes = [re.compile(pattern) for pattern in self.API_TOKEN_PATTERNS]
+    def _load_lists(self, filename: str) -> dict[str, list[str]]:
+        """Load secrets or ignore lists from a file."""
+        lists = {key: [] for key in self.PATTERNS.keys()}
+        try:
+            with open(filename) as f:
+                for line in f:
+                    secret_type, value = line.strip().split(",")
+                    lists[secret_type].append(value)
+        except FileNotFoundError:
+            pass
+        return lists
 
-    def get_file_lines(self, file):
-        with open(file) as f:
-            return f.readlines()
-
-    def add_to_secrets(self, value, secret_type):
-        with open("secrets.csv", "a") as f:
+    def _save_to_file(self, filename: str, secret_type: str, value: str):
+        """Save a value to a secrets or ignore list."""
+        with open(filename, "a") as f:
             if f.tell() != 0:
                 f.write("\n")
             f.write(f"{secret_type},{value}")
 
-    def add_to_ignore(self, value, secret_type):
-        with open("ignore.csv", "a") as f:
-            if f.tell() != 0:
-                f.write("\n")
-            f.write(f"{secret_type},{value}")
+    def save_mappings(self, filename: str):
+        """Save unique mappings to a file."""
+        with open(filename, "w") as f:
+            json.dump(self.unique_mapping, f, indent=4)
 
-    def ask_user(self, value, secret_type):
+    def _ask_user(self, value: str, secret_type: str) -> bool:
+        """Prompt the user to decide whether to redact a value."""
         print(f"Found a potential {secret_type}: {value}")
         print("Would you like to redact? (yes/no/always/never)")
         while True:
@@ -65,227 +62,117 @@ class Redactor:
             elif answer in ["no", "n"]:
                 return False
             elif answer in ["always", "a"]:
-                self.add_to_secrets(value, secret_type)
+                self._save_to_file("secrets.csv", secret_type, value)
                 return True
             elif answer == "never":
-                self.add_to_ignore(value, secret_type)
+                self._save_to_file("ignore.csv", secret_type, value)
                 return False
 
-    def get_lists(self, filename):
-        with open(filename) as f:
-            lines = f.readlines()
-        lists = {"email": [], "ip": [], "phone": [], "name": [], "api": []}
-        for line in lines:
-            secret_type, value = line.strip().split(",")
-            lists[secret_type].append(value)
-        return lists
-
-    def redactor(self, line, secret_array, ignore_array, secret_type, pattern=None):
-        for value in secret_array:
-            if value in line:
-                return (
-                    re.sub(re.escape(value), f"{secret_type.upper()}_REDACTED", line),
-                    secret_array,
-                    ignore_array,
-                )
-        if self.interactive and pattern:
-            value = re.search(pattern, line)
-            if value:
-                value = value.group(0)
-                if value not in ignore_array and self.ask_user(value, secret_type):
-                    secret_array.append(value)
-                    return (
-                        re.sub(re.escape(value), f"{secret_type.upper()}_REDACTED", line),
-                        secret_array,
-                        ignore_array,
-                    )
-                else:
-                    ignore_array.append(value)
-        return line, secret_array, ignore_array
-
-    def processor(self, line, secret_array, ignore_array, secret_type):
-        token_array = ["token=", "key=", "api=", "apikey=", "apitoken="]
-        for value in secret_array:
-            if value in line:
-                return (
-                    re.sub(re.escape(value), f"{secret_type.upper()}_REDACTED", line),
-                    secret_array,
-                    ignore_array,
-                )
-        if self.interactive:
-            for token in token_array:
-                if token in line:
-                    value = re.search(re.escape(token) + r"[^&\s]*", line)
-                    if value:
-                        value = value.group(0).replace(token, "")
-                        if value not in ignore_array and self.ask_user(value, secret_type):
-                            secret_array.append(value)
-                            return (
-                                re.sub(
-                                    re.escape(value),
-                                    f"{token}{secret_type.upper()}_REDACTED",
-                                    line,
-                                ),
-                                secret_array,
-                                ignore_array,
-                            )
-                        else:
-                            ignore_array.append(value)
-        return line, secret_array, ignore_array
-
-    def parse(self, lines):
-        stripped_lines = []
-        for line in lines:
-            line = self.redact_email(line)
-            line = self.redact_ip(line)
-            line = self.redact_url(line)
-            line = self.redact_phone(line)
-            line = self.redact_name(line)
-            line = self.redact_api(line)
-            stripped_lines.append(line)
-        return stripped_lines
-
-    def is_valid_ipv4(ip):
+    @staticmethod
+    def is_valid_ipv4(ip: str) -> bool:
         try:
             ipaddress.IPv4Address(ip)
             return True
         except ipaddress.AddressValueError:
             return False
 
-    def is_valid_hostname(hostname):
+    @staticmethod
+    def is_valid_hostname(hostname: str) -> bool:
         if hostname[-1] == ".":
-            # strip exactly one dot from the right, if present
             hostname = hostname[:-1]
         if len(hostname) > 253:
             return False
 
         labels = hostname.split(".")
-
-        # the TLD must be not all-numeric
         if re.match(r"[0-9]+$", labels[-1]):
             return False
 
+        hostname_regex = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)$", re.IGNORECASE)
         return all(hostname_regex.match(label) for label in labels)
 
-    def redact_ip(self, line):
-            """Redact both IPv4 and IPv6 addresses"""
-            # Check IPv4
-            ipv4_matches = self.ipv4_regex.finditer(line)
-            for match in ipv4_matches:
-                ip = match.group(0)
-                if self.is_valid_ip(ip):
-                    line = line.replace(ip, "IP_REDACTED")
+    def _generate_unique_mapping(self, value: str, secret_type: str) -> str:
+        """Generate a unique mapping for redacted values."""
+        if value not in self.unique_mapping:
+            if secret_type == "ipv4":
+                mapped_ip = f"240.0.0.{self.ip_counter}"
+                self.unique_mapping[value] = mapped_ip
+                self.ip_counter += 1
+            else:
+                mapped_value = f"{secret_type.upper()}_{self.counter[secret_type]}"
+                self.unique_mapping[value] = mapped_value
+                self.counter[secret_type] += 1
+        return self.unique_mapping[value]
 
-            # Check IPv6
-            ipv6_matches = self.ipv6_regex.finditer(line)
-            for match in ipv6_matches:
-                ip = match.group(0)
-                if self.is_valid_ip(ip):
-                    line = line.replace(ip, "IP_REDACTED")
+    def _redact_line(self, line: str, secret_type: str) -> str:
+        """Redact occurrences of a specific type in a line."""
+        pattern = self.PATTERNS.get(secret_type)
 
-            return line
+        if not pattern:
+            return line  # Skip unsupported types
 
-    def redact_url(self, line):
-        """Redact URLs and hostnames"""
-        # Check URLs
-        url_matches = self.url_regex.finditer(line)
-        for match in url_matches:
-            url = match.group(0)
-            if self.is_valid_url(url):
-                line = line.replace(url, "URL_REDACTED")
+        matches = pattern.finditer(line)
+        ignore_set = set(self.ignores.get(secret_type, []))
 
-        # Check hostnames
-        hostname_matches = self.hostname_regex.finditer(line)
-        for match in hostname_matches:
-            hostname = match.group(0)
-            if self.is_valid_hostname(hostname):
-                line = line.replace(hostname, "HOSTNAME_REDACTED")
+        for match in matches:
+            value = match.group(0)
+            if value not in ignore_set:
+                # Generate a unique mapping for the value
+                replacement = self._generate_unique_mapping(value, secret_type)
+                line = re.sub(re.escape(value), replacement, line)
 
-    def redact_email(self, line):
-        return self.redact(line, "email", r"[\w\.-]+@[\w\.-]+\.\w+")
-
-    def redact_phone(self, line):
-        return self.redact(line, "phone", r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b")
-
-    def redact_name(self, line):
-        return self.redact(line, "name")
-
-    def redact_api(self, line):
-        return self.redact_api_keys(line)
-
-    def redact(self, line, secret_type, pattern=None):
-        secret_set = set(self.secrets[secret_type])
-        ignore_set = set(self.ignores[secret_type])
-
-        # Use the appropriate pre-compiled regex based on secret_type
-        regex = None
-        if secret_type == "email":
-            regex = self.email_regex
-        elif secret_type == "ip":
-            regex = self.ipv4_regex
-        elif secret_type == "phone":
-            regex = self.phone_regex
-
-        for value in secret_set:
-            if value in line:
-                return re.sub(re.escape(value), f"{secret_type.upper()}_REDACTED", line)
-
-        if self.interactive and regex:
-            value = regex.search(line)
-            if value:
-                value = value.group(0)
-                if value not in ignore_set and self.ask_user(value, secret_type):
-                    self.secrets[secret_type].append(value)
-                    return re.sub(re.escape(value), f"{secret_type.upper()}_REDACTED", line)
-                else:
-                    self.ignores[secret_type].append(value)
         return line
 
-    def redact_api_keys(self, line):
-        secret_set = set(self.secrets["api"])
-        ignore_set = set(self.ignores["api"])
+    def redact(self, lines: list[str]) -> list[str]:
+        """Redact sensitive information from a list of lines."""
+        redacted_lines = []
+        for line in lines:
+            for secret_type in self.PATTERNS.keys():
+                line = self._redact_line(line, secret_type)
+            redacted_lines.append(line)
+        return redacted_lines
 
-        for value in secret_set:
-            if value in line:
-                return re.sub(re.escape(value), "API_REDACTED", line)
+    def redact_file(self, file: str):
+        """Redact a file in place."""
+        try:
+            with open(file) as f:
+                lines = f.readlines()
+            redacted_lines = self.redact(lines)
+            with open(file + "-redacted", "w") as f:
+                f.writelines(redacted_lines)
+            self.save_mappings(file + "-mappings.json")
+            print(f"Redacted file saved as {file}-redacted")
+        except FileNotFoundError:
+            print(f"File not found: {file}")
+        except Exception as e:
+            print(f"An error occurred while redacting the file: {e}")
 
-        if self.interactive:
-            for regex in self.api_token_regexes:
-                value = regex.search(line)
-                if value:
-                    token = value.group(0)
-                    value = token.split('=', 1)[1]
-                    if value not in ignore_set and self.ask_user(value, "api"):
-                        self.secrets["api"].append(value)
-                        return line.replace(token, f"{token.split('=')[0]}=API_REDACTED")
-                    else:
-                        self.ignores["api"].append(value)
-        return line
+    def redact_directory(self, directory: str):
+        """Redact all files in a directory."""
+        for root, _, files in os.walk(directory):
+            for file in files:
+                file_path = os.path.join(root, file)
+                self.redact_file(file_path)
 
-    def redact_file(self, file):
-        lines = self.get_file_lines(file)
-        stripped_lines = self.parse(lines)
-        with open(file + "-redacted", "w") as f:
-            for line in stripped_lines:
-                f.write(line)
-        print(f"Redacted file saved as {file}-redacted")
-
-    def extract_and_redact_zip(self, zip_file):
-        with zipfile.ZipFile(zip_file, 'r') as zip_ref:
-            extract_dir = zip_file.replace('.zip', '')
-            zip_ref.extractall(extract_dir)
-            print(f"Extracted {zip_file} to {extract_dir}")
-            for root, _, files in os.walk(extract_dir):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    self.redact_file(file_path)
-
+    def extract_and_redact_zip(self, zip_file: str):
+        """Extract and redact all files in a ZIP archive."""
+        try:
+            with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+                extract_dir = zip_file.replace('.zip', '')
+                zip_ref.extractall(extract_dir)
+                print(f"Extracted {zip_file} to {extract_dir}")
+                self.redact_directory(extract_dir)
+        except FileNotFoundError:
+            print(f"ZIP file not found: {zip_file}")
+        except zipfile.BadZipFile:
+            print(f"Invalid ZIP file: {zip_file}")
+        except Exception as e:
+            print(f"An error occurred while extracting the ZIP file: {e}")
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Redact sensitive information from a file or a zip archive."
+        description="Redact sensitive information from a file, directory, or a zip archive."
     )
-    parser.add_argument("file", help="The file or zip archive to redact")
+    parser.add_argument("path", help="The file, directory, or zip archive to redact")
     parser.add_argument(
         "-i", "--interactive", action="store_true", help="Run in interactive mode"
     )
@@ -293,11 +180,12 @@ def main():
 
     redactor = Redactor(interactive=args.interactive)
 
-    if args.file.endswith('.zip'):
-        redactor.extract_and_redact_zip(args.file)
+    if os.path.isdir(args.path):
+        redactor.redact_directory(args.path)
+    elif args.path.endswith('.zip'):
+        redactor.extract_and_redact_zip(args.path)
     else:
-        redactor.redact_file(args.file)
-
+        redactor.redact_file(args.path)
 
 if __name__ == "__main__":
     main()
