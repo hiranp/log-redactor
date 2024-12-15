@@ -1,5 +1,5 @@
 import pytest
-import 
+from log_redactor.redactor 
 
 def test_redactorAPI_with_ignore():
     line = "API key=12345"
