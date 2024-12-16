@@ -1,4 +1,5 @@
 use clap::{App, Arg};
+use ipnet::{Ipv4Net, Ipv6Net};
 use log::{info, warn};
 use lopdf::Document;
 use rand::seq::SliceRandom;
@@ -10,7 +11,7 @@ use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
-use zip::read::ZipArchive;
+use zip::read::ZipArchive; // Add this line
 
 #[derive(Serialize, Deserialize)]
 struct Secret {
@@ -87,23 +88,7 @@ impl Redactor {
     fn init_patterns() -> HashMap<String, Regex> {
         let mut patterns = HashMap::new();
 
-        // Define patterns directly in the insert calls
-        patterns.insert(
-            "ipv4".to_string(),
-            Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").unwrap(),
-        );
-        patterns.insert(
-            "ipv6".to_string(),
-            Regex::new(r"([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}").unwrap()
-        );
-        patterns.insert(
-            "url".to_string(),
-            Regex::new(r"https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)").unwrap()
-        );
-        patterns.insert(
-            "hostname".to_string(),
-            Regex::new(r"(?=.{1,255}$)(?!-)[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*\.?").unwrap()
-        );
+        // Define patterns directly in the insert calls to avoid unnecessary variables
         patterns.insert(
             "phone".to_string(),
             Regex::new(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b").unwrap(),
@@ -399,11 +384,11 @@ impl Redactor {
 }
 
 fn validate_ipv4(ip: &str) -> bool {
-    ip.parse::<std::net::Ipv4Addr>().is_ok()
+    ip.parse::<Ipv4Net>().is_ok()
 }
 
 fn validate_ipv6(ip: &str) -> bool {
-    ip.parse::<std::net::Ipv6Addr>().is_ok()
+    ip.parse::<Ipv6Net>().is_ok()
 }
 
 fn validate_url(url_str: &str) -> bool {
@@ -425,14 +410,13 @@ fn validate_hostname(hostname: &str) -> bool {
 fn main() {
     env_logger::init(); // Initialize the logger
     info!("Starting redaction process");
-
     let matches = App::new("Redactor")
         .version("1.0")
         .author("HP <null@hiranpate.com>")
-        .about("Redacts sensitive information from a file within a directory or zip file")
+        .about("Redacts sensitive information from files, directories, or ZIP archives")
         .arg(
-            Arg::with_name("file")
-                .help("The file to redact")
+            Arg::with_name("path")
+                .help("The path to a file, directory, or ZIP archive to redact")
                 .required(true)
                 .index(1),
         )
@@ -442,42 +426,28 @@ fn main() {
                 .long("interactive")
                 .help("Run in interactive mode"),
         )
-        .arg(
-            Arg::with_name("directory")
-                .short("d")
-                .long("directory")
-                .help("Redact all files in a directory"),
-        )
-        .arg(
-            Arg::with_name("zip")
-                .short("z")
-                .long("zip")
-                .help("Redact all files in a zip archive"),
-        )
         .get_matches();
 
-    let file = matches.value_of("file").unwrap();
+    let path = matches.value_of("path").unwrap();
     let interactive = matches.is_present("interactive");
-    let is_directory = matches.is_present("directory");
-    let is_zip = matches.is_present("zip");
 
     let mut redactor = Redactor::new(interactive);
 
-    if is_directory {
-        redactor.redact_directory(file);
-    } else if is_zip {
-        redactor.redact_zip(file);
-    } else {
-        let path = Path::new(file);
-        if path.is_file() {
-            if path.extension().and_then(|ext| ext.to_str()) == Some("pdf") {
-                redactor.redact_pdf(file).unwrap();
-            } else {
-                redactor.redact_file(file);
+    let path = Path::new(path);
+    if path.is_file() {
+        if path.extension().and_then(|ext| ext.to_str()) == Some("zip") {
+            redactor.redact_zip(path.to_str().unwrap());
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("pdf") {
+            if let Err(e) = redactor.redact_pdf(path.to_str().unwrap()) {
+                info!("Failed to redact PDF: {}", e);
             }
         } else {
-            println!("File not found: {}", file);
+            redactor.redact_file(path.to_str().unwrap());
         }
+    } else if path.is_dir() {
+        redactor.redact_directory(path.to_str().unwrap());
+    } else {
+        eprintln!("Error: The provided path is neither a file nor a directory.");
     }
 
     info!("Redaction process completed");

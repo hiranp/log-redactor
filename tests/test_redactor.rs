@@ -1,4 +1,4 @@
-use crate::Redactor;
+use log_redactor::Redactor;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
@@ -174,4 +174,13 @@ fn test_redact_api_key() {
             assert!(!line.contains(api_key));
         }
     }
+}
+
+#[test]
+fn test_redact_zip() {
+    let mut redactor = Redactor::new(false);
+    redactor.redact_zip("samples/sample.zip");
+
+    // Add assertions to verify the redacted content in the ZIP file
+    // For example, you can extract the redacted ZIP and check the contents
 }
