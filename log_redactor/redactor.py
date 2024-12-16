@@ -30,7 +30,7 @@ REDACTED_EMAIL_DOMAIN = "@example.com"
 REDACTED_PHONE_BASE = "(800) 555-01"
 REDACTED_PHONE_RANGE_START = 0
 REDACTED_PHONE_RANGE_END = 99
-REDACTED_HOST_BASE = "redacted.host"
+REDACTED_HOST_BASE = "redacted_host"
 
 class Redactor:
     """Class to redact sensitive information such as IPs, HOSTs, URLs, IPs, EMAILs, and API keys."""
