@@ -37,13 +37,14 @@ class Redactor:
 
     PATTERNS: ClassVar[dict] = {
         "ipv4": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
-        "ipv6": re.compile(r"\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:\b|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?::[0-9a-fA-F]{1,4}){1,6}\b|\b:(?::[0-9a-fA-F]{1,4}){1,7}\b|\b::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}\b|\b::(?:[0-9a-fA-F]{1,4}:){0,6}\b"),
-        "url": re.compile(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)"),
-        "hostname": re.compile(r"(?=.{1,255}$)(?!-)[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*\.?"),
-        "phone": re.compile(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b"),
-        "email": re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"),
-        "api": re.compile(r"(token|key|api|apikey|apitoken)=[^&\s]*")
+        "ipv6": re.compile(r"\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:|::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}\b"),
+        "hostname": re.compile(r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b"),
+        "phone": re.compile(r"\b(?:\(\d{3}\) |\d{3}[-.\s]?)\d{3}[-.\s]?\d{4}\b"),
+        "email": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"),
+        "url": re.compile(r"https?://[^\s/$.?#].[^\s]*"),
+        "api_key": re.compile(r"\b(?:apikey|token|key|apitoken)=\w+\b")
     }
+
 
     VALIDATORS: ClassVar[dict] = {
         "ipv4": lambda x: Redactor.is_valid_ipv4(x),
@@ -59,12 +60,21 @@ class Redactor:
         self.secrets = self._load_lists("secrets.csv")
         self.ignores = self._load_lists("ignore.csv")
         self.unique_mapping = {}
+        self.counter = {
+            "ipv4": 0,
+            "ipv6": 0,
+            "hostname": 0,
+            "phone": REDACTED_PHONE_RANGE_START,
+            "email": 0,
+            "url": 0,
+            "api_key": 0
+        }
         self.ipv4_generator = IPv4Generator()
         self.ipv6_generator = IPv6Generator()
-        self.email_counter = 1
-        self.phone_counter = REDACTED_PHONE_RANGE_START
-        self.hostname_counter = 1
-        self.counter = {key: 1 for key in self.PATTERNS.keys()}
+        # self.email_counter = 1
+        # self.phone_counter = REDACTED_PHONE_RANGE_START
+        # self.hostname_counter = 1
+        # self.counter = {key: 1 for key in self.PATTERNS.keys()}
 
     def _load_lists(self, filename: str) -> dict[str, list[str]]:
         """Load secrets or ignore lists from a file."""
@@ -169,17 +179,17 @@ class Redactor:
         """Generate a unique mapping for redacted values."""
         if value not in self.unique_mapping:
             if secret_type == "ipv4":
-                self.unique_mapping[value] = self.ipv4_generator.generate_unique_ipv4()
-            elif secret_type == "ipv6":
-                self.unique_mapping[value] = self.ipv6_generator.generate_unique_ipv6()
-            elif secret_type == "email":
-                self.unique_mapping[value] = self._generate_unique_email()
+                mapped_ip = f"240.0.0.{self.counter[secret_type]}"
+                self.unique_mapping[value] = mapped_ip
+                self.counter[secret_type] += 1
             elif secret_type == "phone":
-                self.unique_mapping[value] = self._generate_unique_phone()
-            elif secret_type == "hostname":
-                self.unique_mapping[value] = self._generate_unique_hostname()
+                mapped_phone = f"{REDACTED_PHONE_BASE}{self.counter[secret_type]:02d}"
+                self.unique_mapping[value] = mapped_phone
+                self.counter[secret_type] += 1
+                if self.counter[secret_type] > REDACTED_PHONE_RANGE_END:
+                    self.counter[secret_type] = REDACTED_PHONE_RANGE_START
             else:
-                mapped_value = f"{secret_type.upper()}_{self.counter[secret_type]}"
+                mapped_value = f"{REDACTED_HOST_BASE}{self.counter[secret_type]}"
                 self.unique_mapping[value] = mapped_value
                 self.counter[secret_type] += 1
         return self.unique_mapping[value]
@@ -190,26 +200,17 @@ class Redactor:
         if not pattern:
             return line
 
-        matches = pattern.finditer(line)
-        ignore_set = set(self.ignores.get(pattern_type, []))
-
-        for match in matches:
+        def replace_match(match):
             value = match.group(0)
-            if value not in ignore_set:
-                # Validate if validator exists
-                validator = self.VALIDATORS.get(pattern_type)
-                if validator and not validator(value):
-                    continue
-                replacement = self._generate_unique_mapping(value, pattern_type)
-                line = re.sub(re.escape(value), replacement, line)
+            return self._generate_unique_mapping(value, pattern_type)
 
-        return line
+        return pattern.sub(replace_match, line)
 
-    def redact(self, lines: list[str]) -> list[str]:
-        """Redact sensitive information from a list of lines."""
+    def redact(self, lines: list) -> list:
+        """Redact sensitive information from the given lines."""
         redacted_lines = []
         for line in lines:
-            for pattern_type in self.PATTERNS.keys():
+            for pattern_type in self.PATTERNS:
                 line = self._redact_pattern(line, pattern_type)
             redacted_lines.append(line)
         return redacted_lines

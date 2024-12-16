@@ -56,9 +56,11 @@ def test_sample():
     example-123.net
 
     # Phone Examples
-    (800) 555-0100
-    (800) 555-0101
-    (123) 456-7890
+    (888) 555-9900
+    (800) 575-0101
+    123-456-7890
+    333.444.5555
+    999 888 7777
     (555) 555-5555
 
     # Email Examples
@@ -158,11 +160,18 @@ def test_redact_phone(test_sample, capsys):
     # Capture the standard output
     captured = capsys.readouterr()
 
+    # Print the redacted lines for debugging
+    print("Redacted Lines:\n" + "\n".join(redacted_lines))
+
     # Check that phone numbers are redacted
     for line in redacted_lines:
         assert not any(phone in line for phone in [
-            "(800) 555-0100", "(800) 555-0101", "(123) 456-7890", "(555) 555-5555"
+            "(888) 555-9900", "(800) 575-0101", "123-456-7890", "333.444.5555", "999 888 7777", "(555) 555-5555"
         ])
+
+    # Check that redacted phone numbers follow the expected pattern
+    for line in redacted_lines:
+        assert re.search(r"\(800\) 555-01\d{2}", line)
 
 def test_redact_email(test_sample, capsys):
     redactor = Redactor()
