@@ -4,6 +4,7 @@ use regex::Regex;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 
@@ -83,7 +84,8 @@ impl Redactor {
     fn load_lists(filename: &str) -> HashMap<String, Vec<String>> {
         let mut lists = HashMap::new();
         if let Ok(file) = File::open(filename) {
-            for line in io::BufReader::new(file).lines() {
+            let reader = io::BufReader::new(file);
+            for line in reader.lines() {
                 if let Ok(line) = line {
                     let parts: Vec<&str> = line.split(',').collect();
                     if parts.len() == 2 {
@@ -130,12 +132,13 @@ impl Redactor {
                 mapped_ip
             } else if secret_type == "phone" {
                 let format = self.phone_formats.choose(&mut rand::thread_rng()).unwrap();
-                let mapped_phone = format!(
-                    format,
-                    "800",
-                    "555",
-                    self.counter.entry(secret_type.to_string()).or_insert(0)
-                );
+                let count = self.counter.entry(secret_type.to_string()).or_insert(0);
+                let mapped_phone = match format.as_str() {
+                    "({}) {}-{:04}" => format!("(800) 555-{:04}", count),
+                    "{}-{}-{:04}" => format!("800-555-{:04}", count),
+                    "{}.{}.{}" => format!("800.555.{:04}", count),
+                    _ => format!("800 555 {:04}", count),
+                };
                 *self.counter.get_mut(secret_type).unwrap() += 1;
                 mapped_phone
             } else {
@@ -173,11 +176,12 @@ impl Redactor {
     }
 
     fn save_to_file(&self, filename: &str, secret_type: &str, value: &str) {
-        let mut file = File::create(filename).unwrap();
-        writeln!(file, "{},{}", secret_type, value).unwrap();
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(filename) {
+            writeln!(file, "{},{}", secret_type, value).unwrap();
+        }
     }
 
-    fn redact_pattern(&mut self, line: String, pattern_type: &str) -> String {
+    fn redact_pattern(&mut self, line: &str, pattern_type: &str) -> String {
         let pattern = self.patterns.get(pattern_type).unwrap();
         let ignore_set: HashSet<_> = self
             .ignores
@@ -187,18 +191,35 @@ impl Redactor {
             .cloned()
             .collect();
 
-        let mut redacted_line = line.clone();
+        // Add secrets check
+        let secrets_set: HashSet<_> = self
+            .secrets
+            .get(pattern_type)
+            .unwrap_or(&vec![])
+            .iter()
+            .cloned()
+            .collect();
+
+        let mut redacted_line = line.to_string();
         for cap in pattern.captures_iter(&line) {
             let value = cap.get(0).unwrap().as_str();
-            if !ignore_set.contains(value) {
-                if let Some(validator) = self.validators.get(pattern_type) {
-                    if !validator(value) {
-                        continue;
+
+            // Check if value should be redacted
+            if secrets_set.contains(value)
+                || (!ignore_set.contains(value) && {
+                    if let Some(validator) = self.validators.get(pattern_type) {
+                        if !validator(value) {
+                            false
+                        } else if self.interactive && !self.ask_user(value, pattern_type) {
+                            false
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
                     }
-                }
-                if self.interactive && !self.ask_user(value, pattern_type) {
-                    continue;
-                }
+                })
+            {
                 let replacement = self.generate_unique_mapping(value, pattern_type);
                 redacted_line = redacted_line.replace(value, &replacement);
             }
@@ -211,9 +232,11 @@ impl Redactor {
         lines
             .into_iter()
             .map(|line| {
-                pattern_keys.iter().fold(line, |line, secret_type| {
-                    self.redact_pattern(line, secret_type)
-                })
+                let mut redacted_line = line;
+                for secret_type in &pattern_keys {
+                    redacted_line = self.redact_pattern(&redacted_line, secret_type);
+                }
+                redacted_line
             })
             .collect()
     }
