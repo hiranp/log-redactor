@@ -1,32 +1,93 @@
 use clap::{App, Arg};
 use rand::seq::SliceRandom;
 use regex::Regex;
-use serde_json::json;
-use std::collections::{HashMap, HashSet};
+use serde_derive::{Deserialize, Serialize};
+use serde_json::json; // Import for json! macro
+use std::collections::HashMap;
+use std::collections::HashSet; // Import for HashSet
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, Write}; // Remove Read
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
-use zip::read::ZipArchive;
+use zip::read::ZipArchive; // Import derive macros
 
-pub struct Redactor {
+#[derive(Serialize, Deserialize)]
+struct Secret {
+    value: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Ignore {
+    value: String,
+}
+
+#[derive(Default)] // Add this line
+struct RedactorConfig {
+    secrets: Option<HashMap<String, Vec<String>>>,
+    ignores: Option<HashMap<String, Vec<String>>>,
+}
+
+impl RedactorConfig {
+    fn from_files(secrets_file: &str, ignores_file: &str) -> Result<Self, std::io::Error> {
+        let secrets = File::open(secrets_file)
+            .ok()
+            .map(|file| serde_json::from_reader(BufReader::new(file)).unwrap_or_default());
+
+        let ignores = File::open(ignores_file)
+            .ok()
+            .map(|file| serde_json::from_reader(BufReader::new(file)).unwrap_or_default());
+
+        Ok(RedactorConfig { secrets, ignores })
+    }
+}
+
+struct Redactor {
     patterns: HashMap<String, Regex>,
     validators: HashMap<String, fn(&str) -> bool>,
-    secrets: HashMap<String, Vec<String>>,
-    ignores: HashMap<String, Vec<String>>,
+    config: RedactorConfig,
     unique_mapping: HashMap<String, String>,
     ip_counter: u32,
     counter: HashMap<String, u32>,
     interactive: bool,
     phone_formats: Vec<String>,
 }
+
 impl Redactor {
-    pub fn new(interactive: bool) -> Self {
+    fn new(interactive: bool) -> Self {
+        let patterns = Self::init_patterns();
+
+        let mut validators: HashMap<String, fn(&str) -> bool> = HashMap::new();
+        validators.insert("ipv4".to_string(), validate_ipv4);
+        validators.insert("ipv6".to_string(), validate_ipv6);
+        validators.insert("url".to_string(), validate_url);
+        validators.insert("hostname".to_string(), validate_hostname);
+
+        let config = RedactorConfig::from_files("secrets.csv", "ignore.csv").unwrap_or_default();
+
+        let phone_formats = vec![
+            "({}) {}-{:04}".to_string(),
+            "{}-{}-{:04}".to_string(),
+            "{}.{}.{}".to_string(),
+            "{} {} {}".to_string(),
+        ];
+
+        Redactor {
+            patterns,
+            validators,
+            config,
+            unique_mapping: HashMap::new(),
+            ip_counter: 1,
+            counter: HashMap::new(),
+            interactive,
+            phone_formats,
+        }
+    }
+
+    fn init_patterns() -> HashMap<String, Regex> {
         let mut patterns = HashMap::new();
         patterns.insert(
             "ipv4".to_string(),
             Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").unwrap(),
         );
-
         patterns.insert("ipv6".to_string(), Regex::new(r"([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}").unwrap());
         patterns.insert("url".to_string(), Regex::new(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)").unwrap());
         patterns.insert("hostname".to_string(), Regex::new(r"(?=.{1,255}$)(?!-)[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*\.?").unwrap());
@@ -42,75 +103,7 @@ impl Redactor {
             "api".to_string(),
             Regex::new(r"(token|key|api|apikey|apitoken)=[^&\s]*").unwrap(),
         );
-
-        type ValidatorFn = for<'a> fn(&'a str) -> bool;
-        let mut validators: HashMap<String, ValidatorFn> = HashMap::new();
-        validators.insert("ipv4".to_string(), Redactor::is_valid_ipv4);
-        validators.insert("ipv6".to_string(), Redactor::is_valid_ipv6);
-        validators.insert("url".to_string(), Redactor::is_valid_url);
-        validators.insert("hostname".to_string(), Redactor::is_valid_hostname);
-
-        let phone_formats = vec![
-            "({}) {}-{:04}".to_string(),
-            "{}-{}-{:04}".to_string(),
-            "{}.{}.{}".to_string(),
-            "{} {} {}".to_string(),
-        ];
-
-        Redactor {
-            patterns,
-            validators,
-            secrets: Redactor::load_lists("secrets.csv"),
-            ignores: Redactor::load_lists("ignore.csv"),
-            unique_mapping: HashMap::new(),
-            ip_counter: 1,
-            counter: HashMap::new(),
-            interactive,
-            phone_formats,
-        }
-    }
-
-    fn load_lists(filename: &str) -> HashMap<String, Vec<String>> {
-        let mut lists = HashMap::new();
-        if let Ok(file) = File::open(filename) {
-            let reader = io::BufReader::new(file);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    let parts: Vec<&str> = line.split(',').collect();
-                    if parts.len() == 2 {
-                        lists
-                            .entry(parts[0].to_string())
-                            .or_insert_with(Vec::new)
-                            .push(parts[1].to_string());
-                    }
-                }
-            }
-        }
-        lists
-    }
-
-    fn is_valid_ipv4(ip: &str) -> bool {
-        ip.parse::<std::net::Ipv4Addr>().is_ok()
-    }
-
-    fn is_valid_ipv6(ip: &str) -> bool {
-        ip.parse::<std::net::Ipv6Addr>().is_ok()
-    }
-
-    fn is_valid_url(url: &str) -> bool {
-        url::Url::parse(url).is_ok()
-    }
-
-    fn is_valid_hostname(hostname: &str) -> bool {
-        let hostname_regex = Regex::new(r"(?!-)[a-z0-9-]{1,63}(?<!-)$").unwrap();
-        if hostname.len() > 253 {
-            return false;
-        }
-        let labels: Vec<&str> = hostname.split('.').collect();
-        if labels.last().unwrap().parse::<u32>().is_ok() {
-            return false;
-        }
-        labels.iter().all(|label| hostname_regex.is_match(label))
+        patterns
     }
 
     fn generate_unique_mapping(&mut self, value: &str, secret_type: &str) -> String {
@@ -171,52 +164,44 @@ impl Redactor {
     }
 
     fn redact_pattern(&mut self, line: &str, pattern_type: &str) -> String {
-        let pattern = self.patterns.get(pattern_type).unwrap();
-
-        // Collect captures to end the borrow of `pattern`
+        let pattern = &self.patterns[pattern_type];
         let captures: Vec<_> = pattern.captures_iter(line).collect();
 
-        // Extract necessary data from `self` before the loop
         let ignore_set: HashSet<String> = self
+            .config
             .ignores
-            .get(pattern_type)
-            .cloned()
-            .unwrap_or_else(Vec::new)
+            .as_ref()
+            .and_then(|ignores| ignores.get(pattern_type).cloned())
+            .unwrap_or_default()
             .into_iter()
             .collect();
 
         let secrets_set: HashSet<String> = self
+            .config
             .secrets
-            .get(pattern_type)
-            .cloned()
-            .unwrap_or_else(Vec::new)
+            .as_ref()
+            .and_then(|secrets| secrets.get(pattern_type).cloned())
+            .unwrap_or_default()
             .into_iter()
             .collect();
 
-        // Get the validator function; function pointers are `Copy` so we can clone it
-        let validator_fn = self.validators.get(pattern_type).copied();
-
+        let validator_fn = self.validators[pattern_type];
         let interactive = self.interactive;
 
         let mut redacted_line = line.to_string();
 
-        // Iterate over captures without borrowing `self`
         for cap in captures {
             let value = cap.get(0).unwrap().as_str();
 
-            // Determine if the value should be redacted
             let should_redact = if secrets_set.contains(value) {
                 true
             } else if ignore_set.contains(value) {
                 false
-            } else if let Some(validator) = validator_fn {
-                validator(value) && (!interactive || self.ask_user(value, pattern_type))
             } else {
-                true
+                validator_fn(value) && (!interactive || self.ask_user(value, pattern_type))
             };
 
             if should_redact {
-                // Now we can mutably borrow `self` without conflicts
                 let replacement = self.generate_unique_mapping(value, pattern_type);
                 redacted_line = redacted_line.replace(value, &replacement);
             }
@@ -249,7 +234,6 @@ impl Redactor {
 
             let redacted_lines = self.redact(lines);
 
-            // Determine the original file extension
             let extension = path
                 .extension()
                 .and_then(|ext| ext.to_str())
@@ -259,7 +243,6 @@ impl Redactor {
                 .and_then(|stem| stem.to_str())
                 .unwrap_or("file");
 
-            // Create the redacted file name
             let redacted_file_name = format!("{}-redacted.{}", file_stem, extension);
             let mut output_file = File::create(&redacted_file_name).unwrap();
             for line in redacted_lines {
@@ -326,6 +309,30 @@ impl Redactor {
         println!("This is Linux-specific code.");
         // Add Linux-specific code here
     }
+}
+
+fn validate_ipv4(ip: &str) -> bool {
+    ip.parse::<std::net::Ipv4Addr>().is_ok()
+}
+
+fn validate_ipv6(ip: &str) -> bool {
+    ip.parse::<std::net::Ipv6Addr>().is_ok()
+}
+
+fn validate_url(url_str: &str) -> bool {
+    url::Url::parse(url_str).is_ok()
+}
+
+fn validate_hostname(hostname: &str) -> bool {
+    let hostname_regex = Regex::new(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)$").unwrap();
+    if hostname.len() > 253 {
+        return false;
+    }
+    let labels: Vec<&str> = hostname.split('.').collect();
+    if labels.last().unwrap().parse::<u32>().is_ok() {
+        return false;
+    }
+    labels.iter().all(|label| hostname_regex.is_match(label))
 }
 
 fn main() {

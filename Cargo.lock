@@ -330,6 +330,8 @@ dependencies = [
  "nix",
  "rand",
  "regex",
+ "serde",
+ "serde_derive",
  "serde_json",
  "url",
  "winapi",
