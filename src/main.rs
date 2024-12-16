@@ -1,67 +1,86 @@
-extern crate clap;
-extern crate regex;
-extern crate serde_json;
-
 use clap::{App, Arg};
 use regex::Regex;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-#[derive(Debug)]
 pub struct Redactor {
-    interactive: bool,
+    patterns: HashMap<String, Regex>,
+    validators: HashMap<String, Box<dyn Fn(&str) -> bool>>,
     secrets: HashMap<String, Vec<String>>,
     ignores: HashMap<String, Vec<String>>,
     unique_mapping: HashMap<String, String>,
     ip_counter: u32,
     counter: HashMap<String, u32>,
-    patterns: HashMap<String, Regex>,
+    interactive: bool,
 }
 
 impl Redactor {
     pub fn new(interactive: bool) -> Self {
-        let patterns = HashMap::from([
-            ("email".to_string(), Regex::new(r"[\w\.-]+@[\w\.-]+\.\w+").unwrap()),
-            ("ipv4".to_string(), Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").unwrap()),
-            ("ipv6".to_string(), Regex::new(r"([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}").unwrap()),
-            ("phone".to_string(), Regex::new(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b").unwrap()),
-            ("url".to_string(), Regex::new(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)").unwrap()),
-            ("api".to_string(), Regex::new(r"(token|key|api|apikey|apitoken)=[^&\s]*").unwrap()),
-        ]);
+        let mut patterns = HashMap::new();
+        patterns.insert(
+            "ipv4".to_string(),
+            Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").unwrap(),
+        );
+        patterns.insert("ipv6".to_string(), Regex::new(r"([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}").unwrap());
+        patterns.insert("url".to_string(), Regex::new(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)").unwrap());
+        patterns.insert("hostname".to_string(), Regex::new(r"(?=.{1,255}$)(?!-)[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*\.?").unwrap());
+        patterns.insert(
+            "phone".to_string(),
+            Regex::new(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b").unwrap(),
+        );
+        patterns.insert(
+            "email".to_string(),
+            Regex::new(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+").unwrap(),
+        );
+        patterns.insert(
+            "api".to_string(),
+            Regex::new(r"(token|key|api|apikey|apitoken)=[^&\s]*").unwrap(),
+        );
+
+        let mut validators = HashMap::new();
+        validators.insert(
+            "ipv4".to_string(),
+            Box::new(|x: &str| Redactor::is_valid_ipv4(x)) as Box<dyn Fn(&str) -> bool>,
+        );
+        validators.insert(
+            "ipv6".to_string(),
+            Box::new(|x: &str| Redactor::is_valid_ipv6(x)) as Box<dyn Fn(&str) -> bool>,
+        );
+        validators.insert(
+            "url".to_string(),
+            Box::new(|x: &str| Redactor::is_valid_url(x)) as Box<dyn Fn(&str) -> bool>,
+        );
+        validators.insert(
+            "hostname".to_string(),
+            Box::new(|x: &str| Redactor::is_valid_hostname(x)) as Box<dyn Fn(&str) -> bool>,
+        );
 
         Redactor {
-            interactive,
+            patterns,
+            validators,
             secrets: Redactor::load_lists("secrets.csv"),
             ignores: Redactor::load_lists("ignore.csv"),
             unique_mapping: HashMap::new(),
             ip_counter: 1,
-            counter: HashMap::from([
-                ("email".to_string(), 1),
-                ("phone".to_string(), 1),
-                ("url".to_string(), 1),
-            ]),
-            patterns,
+            counter: HashMap::new(),
+            interactive,
         }
     }
 
     fn load_lists(filename: &str) -> HashMap<String, Vec<String>> {
         let mut lists = HashMap::new();
-        let secret_types = vec!["email", "ipv4", "ipv6", "phone", "url", "api"];
-        for secret_type in secret_types {
-            lists.insert(secret_type.to_string(), Vec::new());
-        }
-
         if let Ok(file) = File::open(filename) {
             for line in io::BufReader::new(file).lines() {
                 if let Ok(line) = line {
-                    let mut parts = line.split(',');
-                    if let (Some(secret_type), Some(value)) = (parts.next(), parts.next()) {
-                        if let Some(list) = lists.get_mut(secret_type) {
-                            list.push(value.to_string());
-                        }
+                    let parts: Vec<&str> = line.split(',').collect();
+                    if parts.len() == 2 {
+                        lists
+                            .entry(parts[0].to_string())
+                            .or_insert_with(Vec::new)
+                            .push(parts[1].to_string());
                     }
                 }
             }
@@ -69,46 +88,28 @@ impl Redactor {
         lists
     }
 
-    fn save_to_file(&self, filename: &str, secret_type: &str, value: &str) {
-        let mut file = OpenOptions::new()
-            .append(true)
-            .create(true)
-            .open(filename)
-            .unwrap();
+    fn is_valid_ipv4(ip: &str) -> bool {
+        ip.parse::<std::net::Ipv4Addr>().is_ok()
+    }
 
-        if let Ok(metadata) = file.metadata() {
-            if metadata.len() > 0 {
-                writeln!(file).unwrap();
-            }
+    fn is_valid_ipv6(ip: &str) -> bool {
+        ip.parse::<std::net::Ipv6Addr>().is_ok()
+    }
+
+    fn is_valid_url(url: &str) -> bool {
+        url::Url::parse(url).is_ok()
+    }
+
+    fn is_valid_hostname(hostname: &str) -> bool {
+        let hostname_regex = Regex::new(r"(?!-)[a-z0-9-]{1,63}(?<!-)$").unwrap();
+        if hostname.len() > 253 {
+            return false;
         }
-
-        writeln!(file, "{},{}", secret_type, value).unwrap();
-    }
-
-    fn save_mappings(&self, filename: &str) {
-        let mappings = json!(self.unique_mapping);
-        let mut file = File::create(filename).unwrap();
-        file.write_all(mappings.to_string().as_bytes()).unwrap();
-    }
-
-    fn redact_line(&mut self, line: String, secret_type: &str) -> String {
-        let pattern = &self.patterns[secret_type];
-        let ignore_set: HashSet<String> = self
-            .ignores
-            .get(secret_type)
-            .unwrap_or(&Vec::new())
-            .iter()
-            .cloned()
-            .collect();
-
-        pattern.find_iter(&line).fold(line, |mut line, match_obj| {
-            let value = match_obj.as_str().to_string();
-            if !ignore_set.contains(&value) {
-                let replacement = self.generate_unique_mapping(&value, secret_type);
-                line = line.replace(&value, &replacement);
-            }
-            line
-        })
+        let labels: Vec<&str> = hostname.split('.').collect();
+        if labels.last().unwrap().parse::<u32>().is_ok() {
+            return false;
+        }
+        labels.iter().all(|label| hostname_regex.is_match(label))
     }
 
     fn generate_unique_mapping(&mut self, value: &str, secret_type: &str) -> String {
@@ -118,13 +119,9 @@ impl Redactor {
                 self.ip_counter += 1;
                 mapped_ip
             } else {
-                let mapped_value = format!(
-                    "{}_{}",
-                    secret_type.to_uppercase(),
-                    self.counter[secret_type]
-                );
-                self.counter
-                    .insert(secret_type.to_string(), self.counter[secret_type] + 1);
+                let count = self.counter.entry(secret_type.to_string()).or_insert(1);
+                let mapped_value = format!("{}_{}", secret_type.to_uppercase(), count);
+                *count += 1;
                 mapped_value
             };
             self.unique_mapping
@@ -135,12 +132,66 @@ impl Redactor {
         }
     }
 
+    fn ask_user(&self, value: &str, secret_type: &str) -> bool {
+        println!("Found a potential {}: {}", secret_type, value);
+        println!("Would you like to redact? (yes/no/always/never)");
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+        match input.trim().to_lowercase().as_str() {
+            "yes" | "y" => true,
+            "no" | "n" => false,
+            "always" | "a" => {
+                self.save_to_file("secrets.csv", secret_type, value);
+                true
+            }
+            "never" => {
+                self.save_to_file("ignore.csv", secret_type, value);
+                false
+            }
+            _ => false,
+        }
+    }
+
+    fn save_to_file(&self, filename: &str, secret_type: &str, value: &str) {
+        let mut file = File::create(filename).unwrap();
+        writeln!(file, "{},{}", secret_type, value).unwrap();
+    }
+
+    fn redact_pattern(&mut self, line: String, pattern_type: &str) -> String {
+        let pattern = self.patterns.get(pattern_type).unwrap();
+        let ignore_set: HashSet<_> = self
+            .ignores
+            .get(pattern_type)
+            .unwrap_or(&vec![])
+            .iter()
+            .cloned()
+            .collect();
+
+        let mut redacted_line = line.clone();
+        for cap in pattern.captures_iter(&line) {
+            let value = cap.get(0).unwrap().as_str();
+            if !ignore_set.contains(value) {
+                if let Some(validator) = self.validators.get(pattern_type) {
+                    if !validator(value) {
+                        continue;
+                    }
+                }
+                if self.interactive && !self.ask_user(value, pattern_type) {
+                    continue;
+                }
+                let replacement = self.generate_unique_mapping(value, pattern_type);
+                redacted_line = redacted_line.replace(value, &replacement);
+            }
+        }
+        redacted_line
+    }
+
     pub fn redact(&mut self, lines: Vec<String>) -> Vec<String> {
         lines
             .into_iter()
             .map(|line| {
                 self.patterns.keys().fold(line, |line, secret_type| {
-                    self.redact_line(line, secret_type)
+                    self.redact_pattern(line, secret_type)
                 })
             })
             .collect()
@@ -156,45 +207,45 @@ impl Redactor {
 
             let redacted_lines = self.redact(lines);
 
-            let mut output_file = File::create(file.to_string() + "-redacted").unwrap();
+            // Determine the original file extension
+            let extension = path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("txt");
+            let file_stem = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("file");
+
+            // Create the redacted file name
+            let redacted_file_name = format!("{}-redacted.{}", file_stem, extension);
+            let mut output_file = File::create(&redacted_file_name).unwrap();
             for line in redacted_lines {
                 writeln!(output_file, "{}", line).unwrap();
             }
 
-            self.save_mappings(&(file.to_string() + "-mappings.json"));
-            println!("Redacted file saved as {}-redacted", file);
+            self.save_mappings(&format!("{}-mappings.json", file_stem));
+            println!("Redacted file saved as {}", redacted_file_name);
         } else {
             println!("File not found: {}", file);
         }
     }
 
-    pub fn redact_directory(&mut self, directory: &str) {
-        for entry in std::fs::read_dir(directory).unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            if path.is_file() {
-                self.redact_file(path.to_str().unwrap());
-            }
-        }
-    }
-
-    pub fn extract_and_redact_zip(&mut self, zip_file: &str) {
-        let extract_dir = zip_file.replace(".zip", "");
-        let file = File::open(zip_file).unwrap();
-        let mut archive = zip::ZipArchive::new(file).unwrap();
-        archive.extract(&extract_dir).unwrap();
-        self.redact_directory(&extract_dir);
+    fn save_mappings(&self, filename: &str) {
+        let mappings = json!(self.unique_mapping);
+        let mut file = File::create(filename).unwrap();
+        file.write_all(mappings.to_string().as_bytes()).unwrap();
     }
 }
 
 fn main() {
     let matches = App::new("Redactor")
         .version("1.0")
-        .author("HP <null@hiranpatel.com")
+        .author("HP <null@hiranpate.com>")
         .about("Redacts sensitive information from files")
         .arg(
-            Arg::with_name("path")
-                .help("The file, directory, or zip archive to redact")
+            Arg::with_name("file")
+                .help("The file to redact")
                 .required(true)
                 .index(1),
         )
@@ -206,16 +257,9 @@ fn main() {
         )
         .get_matches();
 
-    let path = matches.value_of("path").unwrap();
+    let file = matches.value_of("file").unwrap();
     let interactive = matches.is_present("interactive");
 
     let mut redactor = Redactor::new(interactive);
-
-    if Path::new(path).is_dir() {
-        redactor.redact_directory(path);
-    } else if path.ends_with(".zip") {
-        redactor.extract_and_redact_zip(path);
-    } else {
-        redactor.redact_file(path);
-    }
+    redactor.redact_file(file);
 }
