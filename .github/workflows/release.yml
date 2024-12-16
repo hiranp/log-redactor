@@ -54,4 +54,4 @@ jobs:
           # [possible values: all, unix, windows, none]
           zip: windows
           # (required) GitHub token for uploading assets to GitHub Releases.
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN }}
