@@ -10,7 +10,7 @@ use std::path::Path;
 
 pub struct Redactor {
     patterns: HashMap<String, Regex>,
-    validators: HashMap<String, Box<dyn Fn(&str) -> bool>>,
+    validators: HashMap<String, fn(&str) -> bool>,
     secrets: HashMap<String, Vec<String>>,
     ignores: HashMap<String, Vec<String>>,
     unique_mapping: HashMap<String, String>,
@@ -19,10 +19,10 @@ pub struct Redactor {
     interactive: bool,
     phone_formats: Vec<String>,
 }
-
 impl Redactor {
     pub fn new(interactive: bool) -> Self {
         let mut patterns = HashMap::new();
+
         patterns.insert(
             "ipv4".to_string(),
             Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").unwrap(),
@@ -183,47 +183,56 @@ impl Redactor {
 
     fn redact_pattern(&mut self, line: &str, pattern_type: &str) -> String {
         let pattern = self.patterns.get(pattern_type).unwrap();
-        let ignore_set: HashSet<_> = self
+
+        // Collect captures to end the borrow of `pattern`
+        let captures: Vec<_> = pattern.captures_iter(line).collect();
+
+        // Extract necessary data from `self` before the loop
+        let ignore_set: HashSet<String> = self
             .ignores
             .get(pattern_type)
-            .unwrap_or(&vec![])
-            .iter()
             .cloned()
+            .unwrap_or_else(Vec::new)
+            .into_iter()
             .collect();
 
-        // Add secrets check
-        let secrets_set: HashSet<_> = self
+        let secrets_set: HashSet<String> = self
             .secrets
             .get(pattern_type)
-            .unwrap_or(&vec![])
-            .iter()
             .cloned()
+            .unwrap_or_else(Vec::new)
+            .into_iter()
             .collect();
 
+        // Get the validator function; function pointers are `Copy` so we can clone it
+        let validator_fn = self.validators.get(pattern_type).cloned();
+
+        let interactive = self.interactive;
+
         let mut redacted_line = line.to_string();
-        for cap in pattern.captures_iter(&line) {
+
+        // Iterate over captures without borrowing `self`
+        for cap in captures {
             let value = cap.get(0).unwrap().as_str();
 
-            // Check if value should be redacted
-            if secrets_set.contains(value)
-                || (!ignore_set.contains(value) && {
-                    if let Some(validator) = self.validators.get(pattern_type) {
-                        if !validator(value) {
-                            false
-                        } else if self.interactive && !self.ask_user(value, pattern_type) {
-                            false
-                        } else {
-                            true
-                        }
-                    } else {
-                        true
-                    }
-                })
-            {
+            // Determine if the value should be redacted
+            let should_redact = if secrets_set.contains(value) {
+                true
+            } else if ignore_set.contains(value) {
+                false
+            } else if let Some(validator) = validator_fn {
+                validator(value) && (!interactive || self.ask_user(value, pattern_type))
+            } else {
+                true
+            };
+
+            if should_redact {
+                // Now we can mutably borrow `self` without conflicts
                 let replacement = self.generate_unique_mapping(value, pattern_type);
                 redacted_line = redacted_line.replace(value, &replacement);
             }
         }
+
         redacted_line
     }
 
