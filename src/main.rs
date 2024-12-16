@@ -12,6 +12,8 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use zip::read::ZipArchive;
+use std::net::Ipv4Addr;
+use std::net::Ipv6Addr;
 
 #[derive(Serialize, Deserialize)]
 struct Secret {
@@ -106,29 +108,24 @@ impl Redactor {
 
     fn generate_unique_mapping(&mut self, value: &str, secret_type: &str) -> String {
         if !self.unique_mapping.contains_key(value) {
-            let mapped_value = if secret_type == "ipv4" {
-                let mapped_ip = format!("240.0.0.{}", self.ip_counter);
-                self.ip_counter += 1;
-                mapped_ip
-            } else if secret_type == "phone" {
-                let format = self.phone_formats.choose(&mut rand::thread_rng()).unwrap();
-                let count = self.counter.entry(secret_type.to_string()).or_insert(0);
-                let mapped_phone = match format.as_str() {
-                    "({}) {}-{:04}" => format!("(800) 555-{:04}", count),
-                    "{}-{}-{:04}" => format!("800-555-{:04}", count),
-                    "{}.{}.{}" => format!("800.555.{:04}", count),
-                    _ => format!("800 555 {:04}", count),
-                };
-                *self.counter.get_mut(secret_type).unwrap() += 1;
-                mapped_phone
-            } else {
-                let count = self.counter.entry(secret_type.to_string()).or_insert(1);
-                let mapped_value = format!("{}_{}", secret_type.to_uppercase(), count);
-                *count += 1;
-                mapped_value
+            let mapped_value = match secret_type {
+                "ipv4" => {
+                    let mapped_ip = generate_ipv4_address(self.ip_counter);
+                    self.ip_counter += 1;
+                    mapped_ip.to_string()
+                },
+                "ipv6" => {
+                    let mapped_ip = generate_ipv6_address(self.ip_counter);
+                    self.ip_counter += 1;
+                    mapped_ip.to_string()
+                },
+                "phone" => self.generate_phone_number(),
+                "hostname" => self.generate_hostname(),
+                "url" => self.generate_url(),
+                "api_key" => self.generate_api_key(),
+                _ => value.to_string(),
             };
-            self.unique_mapping
-                .insert(value.to_string(), mapped_value.clone());
+            self.unique_mapping.insert(value.to_string(), mapped_value.clone());
             mapped_value
         } else {
             self.unique_mapping.get(value).unwrap().clone()
@@ -369,6 +366,38 @@ impl Redactor {
         file.write_all(mappings.to_string().as_bytes())?;
         Ok(())
     }
+
+    // Generates a new phone number in 800-555-xxxx range
+    fn generate_phone_number(&mut self) -> String {
+        let format = self.phone_formats.choose(&mut rand::thread_rng()).unwrap();
+        let count = self.counter.entry("phone".to_string()).or_insert(0);
+        let mapped_phone = match format.as_str() {
+            "({}) {}-{:04}" => format!("(800) 555-{:04}", count),
+            "{}-{}-{:04}" => format!("800-555-{:04}", count),
+            "{}.{}.{}" => format!("800.555.{:04}", count),
+            _ => format!("800 555 {:04}", count),
+        };
+        *self.counter.get_mut("phone").unwrap() += 1;
+        mapped_phone
+    }
+
+    fn generate_hostname(&mut self) -> String {
+        let hostname = format!("redacted_host{}.example.com", self.counter.get("hostname").unwrap_or(&0));
+        self.counter.entry("hostname".to_string()).and_modify(|e| *e += 1).or_insert(1);
+        hostname
+    }
+
+    fn generate_url(&mut self) -> String {
+        let url = format!("https://www.example{}.com", self.counter.get("url").unwrap_or(&0));
+        self.counter.entry("url".to_string()).and_modify(|e| *e += 1).or_insert(1);
+        url
+    }
+
+    fn generate_api_key(&mut self) -> String {
+        let api_key = format!("api_key_{}", self.counter.get("api_key").unwrap_or(&0));
+        self.counter.entry("api_key".to_string()).and_modify(|e| *e += 1).or_insert(1);
+        api_key
+    }
 }
 
 fn validate_ipv4(ip: &str) -> bool {
@@ -393,6 +422,22 @@ fn validate_hostname(hostname: &str) -> bool {
         return false;
     }
     labels.iter().all(|label| hostname_regex.is_match(label))
+}
+
+// Generates a new IPv4 address in the 240.0.0.0/4 network
+fn generate_ipv4_address(counter: u32) -> Ipv4Addr {
+    let octet3 = (counter >> 8) as u8;
+    let octet4 = (counter & 0xFF) as u8;
+    Ipv4Addr::new(240, 0, octet3, octet4)
+}
+
+// Generate a new IPv6 address in the 3fff::/20 network
+fn generate_ipv6_address(counter: u32) -> Ipv6Addr {
+    let mut segments = [0u16; 8];
+    segments[0] = 0x3fff;
+    segments[1] = (counter >> 16) as u16;
+    segments[2] = (counter & 0xFFFF) as u16;
+    Ipv6Addr::new(segments[0], segments[1], segments[2], 0, 0, 0, 0, 0)
 }
 
 fn main() {
