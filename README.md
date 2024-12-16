@@ -34,6 +34,10 @@ The redacted file is saved as `<original-filename>-redacted.<extension>`.
 
 The script uses a list of regular expressions to find sensitive data in the file. It then replaces the sensitive data with a redacted version of itself. For example, `102.23.5.1` becomes `240.0.0.1`.
 
+Based on Wikipedia's [Reserved IP addresses](https://en.wikipedia.org/wiki/Reserved_IP_addresses) page, the script uses the following reserved IP addresses for redaction:
+For IP4 addresses, the script uses 240.0.0.0/4 as the redacted IP address.
+For IP6 addresses, the script uses 3fff::/20 as the redacted IP address.
+
 ### Interactive Mode
 
 In interactive mode, the script will ask you to confirm each redaction. You can choose to always redact that data, never redact that data, or redact/not redact just that instance of the data. If you are not in interactive mode, the script will always try to redact the data.

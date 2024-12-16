@@ -7,6 +7,9 @@ import re
 import zipfile
 from typing import ClassVar
 
+from log_redactor.IPv4Generator import IPv4Generator
+from log_redactor.IPv6Generator import IPv6Generator
+
 try:
     import urllib.parse
 except ImportError:
@@ -38,7 +41,9 @@ class Redactor:
         "ipv4": lambda x: Redactor.is_valid_ipv4(x),
         "ipv6": lambda x: Redactor.is_valid_ipv6(x),
         "url": lambda x: Redactor.is_valid_url(x),
-        "hostname": lambda x: Redactor.is_valid_hostname(x)
+        "hostname": lambda x: Redactor.is_valid_hostname(x),
+        "phone": lambda x: Redactor.is_valid_phone(x),
+        "email": lambda x: Redactor.is_valid_email(x)
     }
 
     def __init__(self, interactive: bool = False):
@@ -46,7 +51,8 @@ class Redactor:
         self.secrets = self._load_lists("secrets.csv")
         self.ignores = self._load_lists("ignore.csv")
         self.unique_mapping = {}
-        self.ip_counter = 1
+        self.ipv4_generator = IPv4Generator()
+        self.ipv6_generator = IPv6Generator()
         self.counter = {key: 1 for key in self.PATTERNS.keys()}
 
     def _load_lists(self, filename: str) -> dict[str, list[str]]:
@@ -128,13 +134,23 @@ class Redactor:
         hostname_regex = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)$", re.IGNORECASE)
         return all(hostname_regex.match(label) for label in labels)
 
+    @staticmethod
+    def is_valid_phone(phone: str) -> bool:
+        phone_regex = re.compile(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b")
+        return bool(phone_regex.match(phone))
+
+    @staticmethod
+    def is_valid_email(email: str) -> bool:
+        email_regex = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
+        return bool(email_regex.match(email))
+
     def _generate_unique_mapping(self, value: str, secret_type: str) -> str:
         """Generate a unique mapping for redacted values."""
         if value not in self.unique_mapping:
             if secret_type == "ipv4":
-                mapped_ip = f"240.0.0.{self.ip_counter}"
-                self.unique_mapping[value] = mapped_ip
-                self.ip_counter += 1
+                self.unique_mapping[value] = self.ipv4_generator.generate_unique_ipv4()
+            elif secret_type == "ipv6":
+                self.unique_mapping[value] = self.ipv6_generator.generate_unique_ipv6()
             else:
                 mapped_value = f"{secret_type.upper()}_{self.counter[secret_type]}"
                 self.unique_mapping[value] = mapped_value
