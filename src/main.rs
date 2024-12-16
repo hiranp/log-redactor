@@ -22,11 +22,11 @@ pub struct Redactor {
 impl Redactor {
     pub fn new(interactive: bool) -> Self {
         let mut patterns = HashMap::new();
-
         patterns.insert(
             "ipv4".to_string(),
             Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").unwrap(),
         );
+
         patterns.insert("ipv6".to_string(), Regex::new(r"([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}").unwrap());
         patterns.insert("url".to_string(), Regex::new(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)").unwrap());
         patterns.insert("hostname".to_string(), Regex::new(r"(?=.{1,255}$)(?!-)[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*\.?").unwrap());
@@ -43,23 +43,12 @@ impl Redactor {
             Regex::new(r"(token|key|api|apikey|apitoken)=[^&\s]*").unwrap(),
         );
 
-        let mut validators = HashMap::new();
-        validators.insert(
-            "ipv4".to_string(),
-            Box::new(|x: &str| Redactor::is_valid_ipv4(x)) as Box<dyn Fn(&str) -> bool>,
-        );
-        validators.insert(
-            "ipv6".to_string(),
-            Box::new(|x: &str| Redactor::is_valid_ipv6(x)) as Box<dyn Fn(&str) -> bool>,
-        );
-        validators.insert(
-            "url".to_string(),
-            Box::new(|x: &str| Redactor::is_valid_url(x)) as Box<dyn Fn(&str) -> bool>,
-        );
-        validators.insert(
-            "hostname".to_string(),
-            Box::new(|x: &str| Redactor::is_valid_hostname(x)) as Box<dyn Fn(&str) -> bool>,
-        );
+        type ValidatorFn = for<'a> fn(&'a str) -> bool;
+        let mut validators: HashMap<String, ValidatorFn> = HashMap::new();
+        validators.insert("ipv4".to_string(), Redactor::is_valid_ipv4);
+        validators.insert("ipv6".to_string(), Redactor::is_valid_ipv6);
+        validators.insert("url".to_string(), Redactor::is_valid_url);
+        validators.insert("hostname".to_string(), Redactor::is_valid_hostname);
 
         let phone_formats = vec![
             "({}) {}-{:04}".to_string(),
@@ -205,7 +194,7 @@ impl Redactor {
             .collect();
 
         // Get the validator function; function pointers are `Copy` so we can clone it
-        let validator_fn = self.validators.get(pattern_type).cloned();
+        let validator_fn = self.validators.get(pattern_type).copied();
 
         let interactive = self.interactive;
 
