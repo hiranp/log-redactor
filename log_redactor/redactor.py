@@ -12,20 +12,20 @@ class Redactor:
     """Class to redact sensitive information such as IPs, HOSTs, URLs, IPs, EMAILs, and API keys."""
 
     PATTERNS: ClassVar[dict] = {
-        "email": re.compile(r"[\w\.-]+@[\w\.-]+\.\w+"),
         "ipv4": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
         "ipv6": re.compile(r"([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}"),
-        "phone": re.compile(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b"),
         "url": re.compile(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)"),
         "hostname": re.compile(r"(?=.{1,255}$)(?!-)[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*\.?"),
+        "phone": re.compile(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b"),
+        "email": re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"),
         "api": re.compile(r"(token|key|api|apikey|apitoken)=[^&\s]*")
     }
 
     VALIDATORS: ClassVar[dict] = {
-        "ipv4": lambda x: is_valid_ipv4(x),
-        "ipv6": lambda x: is_valid_ipv6(x),
-        "url": lambda x: is_valid_url(x),
-        "hostname": lambda x: is_valid_hostname(x)
+        "ipv4": lambda x: Redactor.is_valid_ipv4(x),
+        "ipv6": lambda x: Redactor.is_valid_ipv6(x),
+        "url": lambda x: Redactor.is_valid_url(x),
+        "hostname": lambda x: Redactor.is_valid_hostname(x)
     }
 
     def __init__(self, interactive: bool = False):
@@ -86,6 +86,22 @@ class Redactor:
             return False
 
     @staticmethod
+    def is_valid_ipv6(ip: str) -> bool:
+        try:
+            ipaddress.IPv6Address(ip)
+            return True
+        except ipaddress.AddressValueError:
+            return False
+
+    @staticmethod
+    def is_valid_url(url: str) -> bool:
+        try:
+            result = urllib.parse.urlparse(url)
+            return all([result.scheme, result.netloc])
+        except ValueError:
+            return False
+
+    @staticmethod
     def is_valid_hostname(hostname: str) -> bool:
         if hostname[-1] == ".":
             hostname = hostname[:-1]
@@ -138,7 +154,7 @@ class Redactor:
         redacted_lines = []
         for line in lines:
             for pattern_type in self.PATTERNS.keys():
-                line = self.redact_pattern(line, pattern_type)
+                line = self._redact_pattern(line, pattern_type)
             redacted_lines.append(line)
         return redacted_lines
 
