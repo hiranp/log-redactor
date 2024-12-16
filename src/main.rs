@@ -1,4 +1,6 @@
 use clap::{App, Arg};
+use env_logger;
+use log::info; // Import logging macros
 use rand::seq::SliceRandom;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
@@ -8,7 +10,7 @@ use std::collections::HashSet; // Import for HashSet
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
-use zip::read::ZipArchive; // Import derive macros
+use zip::read::ZipArchive; // Import derive macros // Initialize the logger
 
 #[derive(Serialize, Deserialize)]
 struct Secret {
@@ -292,23 +294,46 @@ impl Redactor {
         }
     }
 
+    pub fn redact_pdf(&mut self, file: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let pdf_file = PdfFile::<std::fs::File>::open(file)?;
+        let mut doc = pdf_file.into_document();
+
+        for page_num in 0..doc.num_pages() {
+            let page = doc.get_page(page_num)?;
+            let contents = page.contents.as_ref().unwrap_or(&vec![]);
+            let mut content_data = Vec::new();
+
+            for &content_id in contents {
+                let content_stream = doc.get_object(content_id)?;
+                content_data.extend_from_slice(&content_stream.data);
+            }
+
+            // Extract text from the content data
+            let text = extract_text(&content_data); // Implement text extraction logic
+
+            // Redact the text
+            let redacted_text = self.redact(vec![text]);
+
+            // Update the page content with redacted text
+            // Implement logic to replace the content streams with redacted text
+        }
+
+        // Save the redacted PDF
+        doc.save("redacted.pdf")?;
+        Ok(())
+    }
+
     fn save_mappings(&self, filename: &str) {
         let mappings = json!(self.unique_mapping);
         let mut file = File::create(filename).unwrap();
         file.write_all(mappings.to_string().as_bytes()).unwrap();
     }
+}
 
-    #[cfg(target_os = "windows")]
-    fn platform_specific_function(&self) {
-        println!("This is Windows-specific code.");
-        // Add Windows-specific code here
-    }
-
-    #[cfg(target_os = "linux")]
-    fn platform_specific_function(&self) {
-        println!("This is Linux-specific code.");
-        // Add Linux-specific code here
-    }
+// Implement a function to extract text from PDF content data
+fn extract_text(data: &[u8]) -> String {
+    // Implement text extraction from PDF content streams
+    String::new() // Placeholder
 }
 
 fn validate_ipv4(ip: &str) -> bool {
@@ -378,9 +403,15 @@ fn main() {
     } else if is_zip {
         redactor.redact_zip(file);
     } else {
-        redactor.redact_file(file);
+        let path = Path::new(file);
+        if path.is_file() {
+            if path.extension().and_then(|ext| ext.to_str()) == Some("pdf") {
+                redactor.redact_pdf(file).unwrap();
+            } else {
+                redactor.redact_file(file);
+            }
+        } else {
+            println!("File not found: {}", file);
+        }
     }
-
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    redactor.platform_specific_function();
 }
