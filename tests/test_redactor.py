@@ -1,4 +1,3 @@
-
 import os
 import sys
 
@@ -42,6 +41,10 @@ def test_redact_ipv6(sample_log, capsys):
     # Capture the standard output
     captured = capsys.readouterr()
 
+    # Print the redacted lines for debugging
+    print("Redacted Lines:")
+    print("".join(redacted_lines))
+
     # Check that IPv6 addresses are redacted
     for line in redacted_lines:
         assert not any(ip in line for ip in [
@@ -51,8 +54,6 @@ def test_redact_ipv6(sample_log, capsys):
             "::ffff:192.168.1.1", "2001:db8:0:0:0:0:2:1", "::a00:1"
         ])
 
-    # Print the redacted lines
-    print("".join(redacted_lines))
     captured = capsys.readouterr()
     print(captured.out)
 
