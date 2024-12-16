@@ -122,7 +122,10 @@ impl Redactor {
                 "phone" => self.generate_phone_number(),
                 "hostname" => self.generate_hostname(),
                 "url" => self.generate_url(),
-                "api_key" => self.generate_api_key(),
+                "email" => self.generate_email(),
+                _ if secret_type.starts_with("token") || secret_type.starts_with("key") || secret_type.starts_with("api") || secret_type.starts_with("apikey") || secret_type.starts_with("apitoken") => {
+                    self.generate_api_key(secret_type)
+                },
                 _ => value.to_string(),
             };
             self.unique_mapping.insert(value.to_string(), mapped_value.clone());
@@ -131,6 +134,7 @@ impl Redactor {
             self.unique_mapping.get(value).unwrap().clone()
         }
     }
+
 
     fn ask_user(&self, value: &str, secret_type: &str) -> bool {
         println!("Found a potential {}: {}", secret_type, value);
@@ -393,9 +397,17 @@ impl Redactor {
         url
     }
 
-    fn generate_api_key(&mut self) -> String {
-        let api_key = format!("api_key_{}", self.counter.get("api_key").unwrap_or(&0));
-        self.counter.entry("api_key".to_string()).and_modify(|e| *e += 1).or_insert(1);
+    fn generate_email(&mut self) -> String {
+        let count = self.counter.entry("email".to_string()).or_insert(0);
+        let email = format!("redacted{}@example.com", count);
+        *self.counter.get_mut("email").unwrap() += 1;
+        email
+    }
+
+    fn generate_api_key(&mut self, prefix: &str) -> String {
+        let count = self.counter.entry(prefix.to_string()).or_insert(0);
+        let api_key = format!("{}_redacted_{}", prefix, count);
+        *self.counter.get_mut(prefix).unwrap() += 1;
         api_key
     }
 }
