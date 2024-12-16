@@ -4,7 +4,7 @@
 [![Build status](https://img.shields.io/github/actions/workflow/status/hiranp/log-redactor/main.yml?branch=main)](https://github.com/hiranp/log-redactor/actions?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/hiranp/log-redactor/branch/main/graph/badge.svg)](https://codecov.io/gh/hiranp/log-redactor)
 [![Commit activity](https://img.shields.io/github/commit-activity/m/hiranp/log-redactor)](https://img.shields.io/github/commit-activity/m/hiranp/log-redactor)
-[![License](https://img.shields.io/github/license/hiranp/log-redactor/LICENSE)](https://img.shields.io/github/license/hiranp/log-redactor)
+[![License](https://img.shields.io/github/license/hiranp/log-redactor)](https://img.shields.io/github/license/hiranp/log-redactor/LICENSE)
 
 Utility to redact/mask key parts of logs and other files that need to be shared. It can redact email addresses, IP addresses, phone numbers, names, URLs, and API keys. It can also redact custom patterns if interactive mode is enabled. The script reads from `secrets.csv` and `ignore.csv` to keep track of sensitive information and patterns to ignore.
 
