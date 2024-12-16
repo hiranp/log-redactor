@@ -42,8 +42,8 @@ class Redactor:
         "ipv6": lambda x: Redactor.is_valid_ipv6(x),
         "url": lambda x: Redactor.is_valid_url(x),
         "hostname": lambda x: Redactor.is_valid_hostname(x),
-        "phone": lambda x: Redactor.is_valid_phone(x),
-        "email": lambda x: Redactor.is_valid_email(x)
+        "phone": lambda x: Redactor.PATTERNS["phone"].match(x) is not None,
+        "email": lambda x: Redactor.PATTERNS["email"].match(x) is not None
     }
 
     def __init__(self, interactive: bool = False):
@@ -133,16 +133,6 @@ class Redactor:
 
         hostname_regex = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)$", re.IGNORECASE)
         return all(hostname_regex.match(label) for label in labels)
-
-    @staticmethod
-    def is_valid_phone(phone: str) -> bool:
-        phone_regex = re.compile(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b")
-        return bool(phone_regex.match(phone))
-
-    @staticmethod
-    def is_valid_email(email: str) -> bool:
-        email_regex = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
-        return bool(email_regex.match(email))
 
     def _generate_unique_mapping(self, value: str, secret_type: str) -> str:
         """Generate a unique mapping for redacted values."""

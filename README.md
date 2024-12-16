@@ -38,7 +38,39 @@ Based on Wikipedia's [Reserved IP addresses](https://en.wikipedia.org/wiki/Reser
 For IP4 addresses, the script uses 240.0.0.0/4 as the redacted IP address.
 For IP6 addresses, the script uses 3fff::/20 as the redacted IP address.
 
-### Interactive Mode
+### `secrets.csv` and `ignore.csv`
+
+The script reads from `secrets.csv` and `ignore.csv` to manage sensitive information that should be redacted or ignored during the redaction process.
+
+#### `secrets.csv`
+
+This file contains patterns of sensitive information that should always be redacted. Each line in the file specifies a type of sensitive information (e.g., `ipv4`, `email`, etc.) and the corresponding value to be redacted.
+
+Example:
+
+```csv
+ipv4,192.168.1.1
+email,john.doe@example.com
+phone,123-456-7890
+hostname,example.com
+url,https://www.example.com
+api,apikey=1234567890abcdef
+```
+
+#### `ignore.csv`
+
+This file contains patterns of information that should be ignored during the redaction process. Each line in the file specifies a type of information T(e.g., ipv4, email, etc.) and the corresponding value to be ignored.
+
+Example:
+
+```csv
+ipv4,127.0.0.1
+email,admin@example.com
+phone,555-555-5555
+hostname,localhost
+url,http://localhost
+api,apikey=ignorethisapikey
+```
 
 In interactive mode, the script will ask you to confirm each redaction. You can choose to always redact that data, never redact that data, or redact/not redact just that instance of the data. If you are not in interactive mode, the script will always try to redact the data.
 
