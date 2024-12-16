@@ -1,7 +1,7 @@
 # log-redactor
 
 [![Release](https://img.shields.io/github/v/release/hiranp/log-redactor)](https://img.shields.io/github/v/release/hiranp/log-redactor)
-[![Build status](https://img.shields.io/github/actions/workflow/status/hiranp/log-redactor/main.yml?branch=main)](https://github.com/hiranp/log-redactor/actions?query=branch%3Amain)
+[![Build status](https://img.shields.io/github/actions/workflow/status/hiranp/log-redactor/CI?branch=main)](https://github.com/hiranp/log-redactor/actions?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/hiranp/log-redactor/branch/main/graph/badge.svg)](https://codecov.io/gh/hiranp/log-redactor)
 [![Commit activity](https://img.shields.io/github/commit-activity/m/hiranp/log-redactor)](https://img.shields.io/github/commit-activity/m/hiranp/log-redactor)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
