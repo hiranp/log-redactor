@@ -14,7 +14,7 @@ regex = "1.5.4"
 serde_json = "1.0.64"
 serde = "1.0.130"
 serde_derive = "1.0.130"
-zip = "0.5.13"
+zip = "2.2.2"
 url = "2.2.2"
 rand = "0.8"
 lopdf = { version = "0.31", features = ["nom_parser"] }
