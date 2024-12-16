@@ -190,7 +190,7 @@ impl Redactor {
 fn main() {
     let matches = App::new("Redactor")
         .version("1.0")
-        .author("Author Name <author@example.com>")
+        .author("HP <null@hiranpatel.com")
         .about("Redacts sensitive information from files")
         .arg(
             Arg::with_name("path")

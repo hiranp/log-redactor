@@ -2,6 +2,7 @@ import argparse
 import ipaddress
 import json
 import os
+import pathlib
 import re
 import zipfile
 from typing import ClassVar, dict, list
@@ -13,10 +14,18 @@ class Redactor:
     PATTERNS: ClassVar[dict] = {
         "email": re.compile(r"[\w\.-]+@[\w\.-]+\.\w+"),
         "ipv4": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
-        "ipv6": re.compile(r"([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}"),
+        "ipv6": re.compile(r"([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}"),
         "phone": re.compile(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b"),
         "url": re.compile(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)"),
+        "hostname": re.compile(r"(?=.{1,255}$)(?!-)[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*\.?"),
         "api": re.compile(r"(token|key|api|apikey|apitoken)=[^&\s]*")
+    }
+
+    VALIDATORS: ClassVar[dict] = {
+        "ipv4": lambda x: is_valid_ipv4(x),
+        "ipv6": lambda x: is_valid_ipv6(x),
+        "url": lambda x: is_valid_url(x),
+        "hostname": lambda x: is_valid_hostname(x)
     }
 
     def __init__(self, interactive: bool = False):
@@ -103,21 +112,23 @@ class Redactor:
                 self.counter[secret_type] += 1
         return self.unique_mapping[value]
 
-    def _redact_line(self, line: str, secret_type: str) -> str:
-        """Redact occurrences of a specific type in a line."""
-        pattern = self.PATTERNS.get(secret_type)
-
+    def _redact_pattern(self, line: str, pattern_type: str) -> str:
+        """Unified redaction method for all patterns"""
+        pattern = self.PATTERNS.get(pattern_type)
         if not pattern:
-            return line  # Skip unsupported types
+            return line
 
         matches = pattern.finditer(line)
-        ignore_set = set(self.ignores.get(secret_type, []))
+        ignore_set = set(self.ignores.get(pattern_type, []))
 
         for match in matches:
             value = match.group(0)
             if value not in ignore_set:
-                # Generate a unique mapping for the value
-                replacement = self._generate_unique_mapping(value, secret_type)
+                # Validate if validator exists
+                validator = self.VALIDATORS.get(pattern_type)
+                if validator and not validator(value):
+                    continue
+                replacement = self._generate_unique_mapping(value, pattern_type)
                 line = re.sub(re.escape(value), replacement, line)
 
         return line
@@ -126,18 +137,21 @@ class Redactor:
         """Redact sensitive information from a list of lines."""
         redacted_lines = []
         for line in lines:
-            for secret_type in self.PATTERNS.keys():
-                line = self._redact_line(line, secret_type)
+            for pattern_type in self.PATTERNS.keys():
+                line = self.redact_pattern(line, pattern_type)
             redacted_lines.append(line)
         return redacted_lines
 
     def redact_file(self, file: str):
         """Redact a file in place."""
         try:
+            extension = pathlib.Path(file).suffix
+            if not extension:
+                extension = ".txt"
             with open(file) as f:
                 lines = f.readlines()
             redacted_lines = self.redact(lines)
-            with open(file + "-redacted", "w") as f:
+            with open(file + "-redacted" + extension, "w") as f:
                 f.writelines(redacted_lines)
             self.save_mappings(file + "-mappings.json")
             print(f"Redacted file saved as {file}-redacted")
