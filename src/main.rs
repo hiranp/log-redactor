@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
-use zip::read::ZipArchive; // Add this line
+use zip::read::ZipArchive;
 
 #[derive(Serialize, Deserialize)]
 struct Secret {
@@ -23,7 +23,7 @@ struct Ignore {
     value: String,
 }
 
-#[derive(Default)] // Add this line
+#[derive(Default)]
 struct RedactorConfig {
     secrets: Option<HashMap<String, Vec<String>>>,
     ignores: Option<HashMap<String, Vec<String>>>,
@@ -88,7 +88,6 @@ impl Redactor {
     fn init_patterns() -> HashMap<String, Regex> {
         let mut patterns = HashMap::new();
 
-        // Define patterns directly in the insert calls to avoid unnecessary variables
         patterns.insert(
             "phone".to_string(),
             Regex::new(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b").unwrap(),
@@ -305,37 +304,26 @@ impl Redactor {
         let mut doc = Document::load(file)?;
         let pages = doc.get_pages();
 
-        for (_page_num, &page_id) in &pages {
+        for &page_id in pages.values() {
             // Get the content streams of the page
             let content_data = doc.get_page_content(page_id)?;
             let mut content = lopdf::content::Content::decode(&content_data)?;
 
             // Iterate over the operations and redact text
             for operation in &mut content.operations {
-                match operation.operator.as_ref() {
-                    "Tj" | "'" => {
-                        // Text-showing operators with a single string operand
-                        if let Some(literal) = operation.operands.get_mut(0) {
-                            if let lopdf::Object::String(ref mut text, _) = literal {
-                                let redacted = self.redact_string(text)?;
-                                *text = redacted;
-                            }
+                if let Some(lopdf::Object::String(ref mut text, _)) = operation.operands.get_mut(0)
+                {
+                    let redacted = self.redact_string(text)?;
+                    *text = redacted;
+                } else if let Some(lopdf::Object::Array(ref mut elements)) =
+                    operation.operands.get_mut(0)
+                {
+                    for elem in elements {
+                        if let lopdf::Object::String(ref mut text, _) = elem {
+                            let redacted = self.redact_string(text)?;
+                            *text = redacted;
                         }
                     }
-                    "TJ" => {
-                        // Text-showing operator with array of strings and numbers
-                        if let Some(lopdf::Object::Array(ref mut elements)) =
-                            operation.operands.get_mut(0)
-                        {
-                            for elem in elements {
-                                if let lopdf::Object::String(ref mut text, _) = elem {
-                                    let redacted = self.redact_string(text)?;
-                                    *text = redacted;
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
                 }
             }
 
@@ -396,7 +384,7 @@ fn validate_url(url_str: &str) -> bool {
 }
 
 fn validate_hostname(hostname: &str) -> bool {
-    let hostname_regex = Regex::new(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)$").unwrap();
+    let hostname_regex = Regex::new(r"^[A-Za-z0-9-]{1,63}$").unwrap();
     if hostname.len() > 253 {
         return false;
     }

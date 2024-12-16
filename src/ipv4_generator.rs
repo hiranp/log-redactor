@@ -30,3 +30,9 @@ impl IPv4Generator {
         Ok(new_ip.to_string())
     }
 }
+
+impl Default for IPv4Generator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
