@@ -3,10 +3,10 @@ use rand::seq::SliceRandom;
 use regex::Regex;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
-use std::fs::OpenOptions;
-use std::io::{self, BufRead, Write};
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, BufRead, Write}; // Remove Read
 use std::path::Path;
+use zip::read::ZipArchive;
 
 pub struct Redactor {
     patterns: HashMap<String, Regex>,
@@ -273,10 +273,58 @@ impl Redactor {
         }
     }
 
+    pub fn redact_directory(&mut self, dir: &str) {
+        let path = Path::new(dir);
+        if path.is_dir() {
+            for entry in fs::read_dir(path).unwrap() {
+                let entry = entry.unwrap();
+                let path = entry.path();
+                if path.is_file() {
+                    self.redact_file(path.to_str().unwrap());
+                }
+            }
+        } else {
+            println!("Directory not found: {}", dir);
+        }
+    }
+
+    pub fn redact_zip(&mut self, zip_file: &str) {
+        let file = File::open(zip_file).unwrap();
+        let mut archive = ZipArchive::new(file).unwrap();
+
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).unwrap();
+            if file.is_file() {
+                let mut contents = Vec::new();
+                io::copy(&mut file, &mut contents).unwrap();
+                let contents = String::from_utf8(contents).unwrap();
+                let redacted_contents = self.redact(vec![contents]);
+                let redacted_file_name = format!("{}-redacted", file.name());
+                let mut output_file = File::create(&redacted_file_name).unwrap();
+                for line in redacted_contents {
+                    writeln!(output_file, "{}", line).unwrap();
+                }
+                println!("Redacted file saved as {}", redacted_file_name);
+            }
+        }
+    }
+
     fn save_mappings(&self, filename: &str) {
         let mappings = json!(self.unique_mapping);
         let mut file = File::create(filename).unwrap();
         file.write_all(mappings.to_string().as_bytes()).unwrap();
+    }
+
+    #[cfg(target_os = "windows")]
+    fn platform_specific_function(&self) {
+        println!("This is Windows-specific code.");
+        // Add Windows-specific code here
+    }
+
+    #[cfg(target_os = "linux")]
+    fn platform_specific_function(&self) {
+        println!("This is Linux-specific code.");
+        // Add Linux-specific code here
     }
 }
 
@@ -284,7 +332,7 @@ fn main() {
     let matches = App::new("Redactor")
         .version("1.0")
         .author("HP <null@hiranpate.com>")
-        .about("Redacts sensitive information from files")
+        .about("Redacts sensitive information from a file within a directory or zip file")
         .arg(
             Arg::with_name("file")
                 .help("The file to redact")
@@ -297,11 +345,35 @@ fn main() {
                 .long("interactive")
                 .help("Run in interactive mode"),
         )
+        .arg(
+            Arg::with_name("directory")
+                .short("d")
+                .long("directory")
+                .help("Redact all files in a directory"),
+        )
+        .arg(
+            Arg::with_name("zip")
+                .short("z")
+                .long("zip")
+                .help("Redact all files in a zip archive"),
+        )
         .get_matches();
 
     let file = matches.value_of("file").unwrap();
     let interactive = matches.is_present("interactive");
+    let is_directory = matches.is_present("directory");
+    let is_zip = matches.is_present("zip");
 
     let mut redactor = Redactor::new(interactive);
-    redactor.redact_file(file);
+
+    if is_directory {
+        redactor.redact_directory(file);
+    } else if is_zip {
+        redactor.redact_zip(file);
+    } else {
+        redactor.redact_file(file);
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    redactor.platform_specific_function();
 }

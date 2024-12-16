@@ -36,9 +36,9 @@ impl IncrementalPhoneNumberGenerator {
 }
 
 // Example usage
-fn main() {
-    let mut generator = IncrementalPhoneNumberGenerator::new("800", "555", 1000, 1010);
-    while let Some(phone_number) = generator.generate() {
-        println!("{}", phone_number);
-    }
-}
+// fn main() {
+//     let mut generator = IncrementalPhoneNumberGenerator::new("800", "555", 1000, 1010);
+//     while let Some(phone_number) = generator.generate() {
+//         println!("{}", phone_number);
+//     }
+// }
