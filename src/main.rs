@@ -1,4 +1,4 @@
-use clap::{App, Arg};
+use clap::{Arg, Command};
 use ipnet::{Ipv4Net, Ipv6Net};
 use log::{info, warn};
 use lopdf::Document;
@@ -408,28 +408,26 @@ fn validate_hostname(hostname: &str) -> bool {
 }
 
 fn main() {
-    env_logger::init(); // Initialize the logger
-    info!("Starting redaction process");
-    let matches = App::new("Redactor")
+    let matches = Command::new("Redactor")
         .version("1.0")
         .author("HP <null@hiranpate.com>")
         .about("Redacts sensitive information from files, directories, or ZIP archives")
         .arg(
-            Arg::with_name("path")
+            Arg::new("path")
                 .help("The path to a file, directory, or ZIP archive to redact")
                 .required(true)
                 .index(1),
         )
         .arg(
-            Arg::with_name("interactive")
-                .short("i")
+            Arg::new("interactive")
+                .short('i')
                 .long("interactive")
                 .help("Run in interactive mode"),
         )
         .get_matches();
 
-    let path = matches.value_of("path").unwrap();
-    let interactive = matches.is_present("interactive");
+    let path = matches.get_one::<String>("path").unwrap();
+    let interactive = matches.contains_id("interactive");
 
     let mut redactor = Redactor::new(interactive);
 
