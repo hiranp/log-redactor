@@ -5,8 +5,21 @@ import os
 import pathlib
 import re
 import zipfile
-from typing import ClassVar, dict, list
+from typing import ClassVar
 
+try:
+    import urllib.parse
+except ImportError:
+    print("Please install the urllib library using 'pip install urllib'")
+    exit()
+
+PDF_SUPPORT = True
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    PDF_SUPPORT = False
+    print("PyMuPDF library not installed. PDF redaction will be disabled.")
+    print("Please install it using 'pip install --upgrade pymupdf'")
 
 class Redactor:
     """Class to redact sensitive information such as IPs, HOSTs, URLs, IPs, EMAILs, and API keys."""
@@ -161,9 +174,7 @@ class Redactor:
     def redact_file(self, file: str):
         """Redact a file in place."""
         try:
-            extension = pathlib.Path(file).suffix
-            if not extension:
-                extension = ".txt"
+            extension = pathlib.Path(file).suffix or ".txt"
             with open(file) as f:
                 lines = f.readlines()
             redacted_lines = self.redact(lines)
@@ -198,6 +209,30 @@ class Redactor:
         except Exception as e:
             print(f"An error occurred while extracting the ZIP file: {e}")
 
+    def redact_pdf(self, pdf_file: str):
+        """Redact sensitive information from a PDF file."""
+        if not PDF_SUPPORT:
+            print("PDF redaction is not supported. Please install the PyMuPDF library.")
+            return
+
+        try:
+            doc = fitz.open(pdf_file)
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                text = page.get_text("text")
+                redacted_text = self.redact([text])[0]
+                if text != redacted_text:
+                    areas = page.search_for(text)
+                    for area in areas:
+                        page.add_redact_annot(area, fill=(0, 0, 0))
+                    page.apply_redactions()
+            redacted_pdf_file = pdf_file.replace(".pdf", "-redacted.pdf")
+            doc.save(redacted_pdf_file)
+            self.save_mappings(pdf_file.replace(".pdf", "-mappings.json"))
+            print(f"Redacted PDF saved as {redacted_pdf_file}")
+        except Exception as e:
+            print(f"An error occurred while redacting the PDF file: {e}")
+
 def main():
     parser = argparse.ArgumentParser(
         description="Redact sensitive information from a file, directory, or a zip archive."
@@ -214,6 +249,8 @@ def main():
         redactor.redact_directory(args.path)
     elif args.path.endswith('.zip'):
         redactor.extract_and_redact_zip(args.path)
+    elif args.path.endswith('.pdf'):
+        redactor.redact_pdf(args.path)
     else:
         redactor.redact_file(args.path)
 
