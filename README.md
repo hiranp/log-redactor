@@ -9,7 +9,7 @@
 Utility to redact/mask key parts of logs and other files that need to be shared. It can redact email addresses, IP addresses, phone numbers, names, URLs, and API keys. It can also redact custom patterns if interactive mode is enabled. The script reads from `secrets.csv` and `ignore.csv` to keep track of sensitive information and patterns to ignore.
 
 - **GitHub repository**: <https://github.com/hiranp/log-redactor/>
-- **Documentation**: <https://hiranp.github.io/log-redactor/>
+- **Documentation**: <https://hiranp.github.io/log-redactor/docs>
 
 ## Features
 
