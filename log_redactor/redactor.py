@@ -30,6 +30,7 @@ REDACTED_EMAIL_DOMAIN = "@example.com"
 REDACTED_PHONE_BASE = "(800) 555-01"
 REDACTED_PHONE_RANGE_START = 0
 REDACTED_PHONE_RANGE_END = 99
+REDACTED_HOST_BASE = "redacted.host"
 
 class Redactor:
     """Class to redact sensitive information such as IPs, HOSTs, URLs, IPs, EMAILs, and API keys."""
@@ -62,6 +63,7 @@ class Redactor:
         self.ipv6_generator = IPv6Generator()
         self.email_counter = 1
         self.phone_counter = REDACTED_PHONE_RANGE_START
+        self.hostname_counter = 1
         self.counter = {key: 1 for key in self.PATTERNS.keys()}
 
     def _load_lists(self, filename: str) -> dict[str, list[str]]:
@@ -157,6 +159,12 @@ class Redactor:
         self.phone_counter += 1
         return phone
 
+    def _generate_unique_hostname(self) -> str:
+        """Generate a unique redacted hostname."""
+        hostname = f"{REDACTED_HOST_BASE}{self.hostname_counter}"
+        self.hostname_counter += 1
+        return hostname
+
     def _generate_unique_mapping(self, value: str, secret_type: str) -> str:
         """Generate a unique mapping for redacted values."""
         if value not in self.unique_mapping:
@@ -168,6 +176,8 @@ class Redactor:
                 self.unique_mapping[value] = self._generate_unique_email()
             elif secret_type == "phone":
                 self.unique_mapping[value] = self._generate_unique_phone()
+            elif secret_type == "hostname":
+                self.unique_mapping[value] = self._generate_unique_hostname()
             else:
                 mapped_value = f"{secret_type.upper()}_{self.counter[secret_type]}"
                 self.unique_mapping[value] = mapped_value
