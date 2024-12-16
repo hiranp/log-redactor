@@ -24,6 +24,13 @@ except ImportError:
     print("PyMuPDF library not installed. PDF redaction will be disabled.")
     print("Please install it using 'pip install --upgrade pymupdf'")
 
+# Global variables for redacted patterns
+REDACTED_EMAIL_BASE = "redacted.user"
+REDACTED_EMAIL_DOMAIN = "@example.com"
+REDACTED_PHONE_BASE = "(800) 555-01"
+REDACTED_PHONE_RANGE_START = 0
+REDACTED_PHONE_RANGE_END = 99
+
 class Redactor:
     """Class to redact sensitive information such as IPs, HOSTs, URLs, IPs, EMAILs, and API keys."""
 
@@ -53,6 +60,8 @@ class Redactor:
         self.unique_mapping = {}
         self.ipv4_generator = IPv4Generator()
         self.ipv6_generator = IPv6Generator()
+        self.email_counter = 1
+        self.phone_counter = REDACTED_PHONE_RANGE_START
         self.counter = {key: 1 for key in self.PATTERNS.keys()}
 
     def _load_lists(self, filename: str) -> dict[str, list[str]]:
@@ -134,6 +143,20 @@ class Redactor:
         hostname_regex = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)$", re.IGNORECASE)
         return all(hostname_regex.match(label) for label in labels)
 
+    def _generate_unique_email(self) -> str:
+        """Generate a unique redacted email address."""
+        email = f"{REDACTED_EMAIL_BASE}{self.email_counter}{REDACTED_EMAIL_DOMAIN}"
+        self.email_counter += 1
+        return email
+
+    def _generate_unique_phone(self) -> str:
+        """Generate a unique redacted phone number."""
+        if self.phone_counter > REDACTED_PHONE_RANGE_END:
+            raise ValueError("No more phone numbers available in the specified range.")
+        phone = f"{REDACTED_PHONE_BASE}{str(self.phone_counter).zfill(2)}"
+        self.phone_counter += 1
+        return phone
+
     def _generate_unique_mapping(self, value: str, secret_type: str) -> str:
         """Generate a unique mapping for redacted values."""
         if value not in self.unique_mapping:
@@ -141,6 +164,10 @@ class Redactor:
                 self.unique_mapping[value] = self.ipv4_generator.generate_unique_ipv4()
             elif secret_type == "ipv6":
                 self.unique_mapping[value] = self.ipv6_generator.generate_unique_ipv6()
+            elif secret_type == "email":
+                self.unique_mapping[value] = self._generate_unique_email()
+            elif secret_type == "phone":
+                self.unique_mapping[value] = self._generate_unique_phone()
             else:
                 mapped_value = f"{secret_type.upper()}_{self.counter[secret_type]}"
                 self.unique_mapping[value] = mapped_value

@@ -38,6 +38,10 @@ Based on Wikipedia's [Reserved IP addresses](https://en.wikipedia.org/wiki/Reser
 For IP4 addresses, the script uses 240.0.0.0/4 as the redacted IP address.
 For IP6 addresses, the script uses 3fff::/20 as the redacted IP address.
 
+For numbers, the script uses (800) 555‑0100 through (800) 555‑0199 range. See <https://en.wikipedia.org/wiki/555_(telephone_number)> for more information.
+
+For email addresses, the script uses `redacted.user@example.com` as the redacted email address. See <https://en.wikipedia.org/wiki/Example.com> for more information.
+
 ### `secrets.csv` and `ignore.csv`
 
 The script reads from `secrets.csv` and `ignore.csv` to manage sensitive information that should be redacted or ignored during the redaction process.
@@ -101,6 +105,7 @@ In interactive mode, the script will ask you to confirm each redaction. You can 
 - [ ] Add support for incorporating custom patterns
 - [ ] Add support for incorporating ML models to redact data more accurately
 - [ ] Add support for redacting data in multiple files at once
+- [ ] Possibly add [phonenumbers](https://pypi.org/project/phonenumbers/) library to redact phone numbers more accurately
 
 ## Credits
 
