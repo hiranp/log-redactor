@@ -1,4 +1,5 @@
 use clap::{App, Arg};
+use rand::seq::SliceRandom;
 use regex::Regex;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
@@ -15,6 +16,7 @@ pub struct Redactor {
     ip_counter: u32,
     counter: HashMap<String, u32>,
     interactive: bool,
+    phone_formats: Vec<String>,
 }
 
 impl Redactor {
@@ -58,6 +60,13 @@ impl Redactor {
             Box::new(|x: &str| Redactor::is_valid_hostname(x)) as Box<dyn Fn(&str) -> bool>,
         );
 
+        let phone_formats = vec![
+            "({}) {}-{:04}".to_string(),
+            "{}-{}-{:04}".to_string(),
+            "{}.{}.{}".to_string(),
+            "{} {} {}".to_string(),
+        ];
+
         Redactor {
             patterns,
             validators,
@@ -67,6 +76,7 @@ impl Redactor {
             ip_counter: 1,
             counter: HashMap::new(),
             interactive,
+            phone_formats,
         }
     }
 
@@ -118,6 +128,16 @@ impl Redactor {
                 let mapped_ip = format!("240.0.0.{}", self.ip_counter);
                 self.ip_counter += 1;
                 mapped_ip
+            } else if secret_type == "phone" {
+                let format = self.phone_formats.choose(&mut rand::thread_rng()).unwrap();
+                let mapped_phone = format!(
+                    format,
+                    "800",
+                    "555",
+                    self.counter.entry(secret_type.to_string()).or_insert(0)
+                );
+                *self.counter.get_mut(secret_type).unwrap() += 1;
+                mapped_phone
             } else {
                 let count = self.counter.entry(secret_type.to_string()).or_insert(1);
                 let mapped_value = format!("{}_{}", secret_type.to_uppercase(), count);
@@ -187,10 +207,11 @@ impl Redactor {
     }
 
     pub fn redact(&mut self, lines: Vec<String>) -> Vec<String> {
+        let pattern_keys: Vec<String> = self.patterns.keys().cloned().collect();
         lines
             .into_iter()
             .map(|line| {
-                self.patterns.keys().fold(line, |line, secret_type| {
+                pattern_keys.iter().fold(line, |line, secret_type| {
                     self.redact_pattern(line, secret_type)
                 })
             })
