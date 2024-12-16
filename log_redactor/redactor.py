@@ -1,6 +1,4 @@
 import argparse
-import ipaddress
-import json
 import os
 import pathlib
 import re
@@ -31,6 +29,8 @@ REDACTED_PHONE_BASE = "(800) 555-01"
 REDACTED_PHONE_RANGE_START = 0
 REDACTED_PHONE_RANGE_END = 99
 REDACTED_HOST_BASE = "redacted_host"
+REDACTED_URL_BASE = "redacted.url"
+REDACTED_API_KEY_BASE = "redacted_api_key"
 
 class Redactor:
     """Class to redact sensitive information such as IPs, HOSTs, URLs, IPs, EMAILs, and API keys."""
@@ -39,7 +39,7 @@ class Redactor:
         "ipv4": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
         "ipv6": re.compile(r"\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:|::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}\b"),
         "hostname": re.compile(r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b"),
-        "phone": re.compile(r"\b(?:\(\d{3}\) |\d{3}[-.\s]?)\d{3}[-.\s]?\d{4}\b"),
+        "phone": re.compile(r"\(\d{3}\) \d{3}-\d{4}|\d{3}-\d{3}-\d{4}|\d{3}\.\d{3}\.\d{4}|\d{3} \d{3} \d{4}"),
         "email": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"),
         "url": re.compile(r"https?://[^\s/$.?#].[^\s]*"),
         "api_key": re.compile(r"\b(?:apikey|token|key|apitoken)=\w+\b")
@@ -171,28 +171,47 @@ class Redactor:
 
     def _generate_unique_hostname(self) -> str:
         """Generate a unique redacted hostname."""
-        hostname = f"{REDACTED_HOST_BASE}{self.hostname_counter}"
-        self.hostname_counter += 1
+        hostname = f"{REDACTED_HOST_BASE}{self.counter['hostname']}"
+        self.counter['hostname'] += 1
         return hostname
 
+    def _generate_unique_url(self, value: str) -> str:
+        """Generate a unique redacted URL, keeping the first part of the original URL."""
+        parsed_url = urllib.parse.urlparse(value)
+        scheme = parsed_url.scheme
+        url = f"{scheme}://{REDACTED_URL_BASE}{self.counter['url']}"
+        self.counter['url'] += 1
+        return url
+
+    def _generate_unique_api_key(self, value: str) -> str:
+        """Generate a unique redacted API key, keeping the first part of the original key."""
+        key_type = value.split('=')[0]
+        api_key = f"{key_type}=redacted_api_key{self.counter['api_key']}"
+        self.counter['api_key'] += 1
+        return api_key
+
     def _generate_unique_mapping(self, value: str, secret_type: str) -> str:
-        """Generate a unique mapping for redacted values."""
-        if value not in self.unique_mapping:
-            if secret_type == "ipv4":
-                mapped_ip = f"240.0.0.{self.counter[secret_type]}"
-                self.unique_mapping[value] = mapped_ip
-                self.counter[secret_type] += 1
-            elif secret_type == "phone":
-                mapped_phone = f"{REDACTED_PHONE_BASE}{self.counter[secret_type]:02d}"
-                self.unique_mapping[value] = mapped_phone
-                self.counter[secret_type] += 1
-                if self.counter[secret_type] > REDACTED_PHONE_RANGE_END:
-                    self.counter[secret_type] = REDACTED_PHONE_RANGE_START
-            else:
-                mapped_value = f"{REDACTED_HOST_BASE}{self.counter[secret_type]}"
-                self.unique_mapping[value] = mapped_value
-                self.counter[secret_type] += 1
-        return self.unique_mapping[value]
+            """Generate a unique mapping for redacted values."""
+            if value not in self.unique_mapping:
+                if secret_type == "ipv4":
+                    mapped_ip = f"240.0.0.{self.counter[secret_type]}"
+                    self.unique_mapping[value] = mapped_ip
+                    self.counter[secret_type] += 1
+                elif secret_type == "ipv6":
+                    self.unique_mapping[value] = self.ipv6_generator.generate_unique_ipv6()
+                elif secret_type == "phone":
+                    mapped_phone = f"{REDACTED_PHONE_BASE}{self.counter[secret_type]:02d}"
+                    self.unique_mapping[value] = mapped_phone
+                    self.counter[secret_type] += 1
+                    if self.counter[secret_type] > REDACTED_PHONE_RANGE_END:
+                        self.counter[secret_type] = REDACTED_PHONE_RANGE_START
+                elif secret_type == "url":
+                    self.unique_mapping[value] = self._generate_unique_url(value)
+                elif secret_type == "api_key":
+                    self.unique_mapping[value] = self._generate_unique_api_key(value)
+                else:
+                    self.unique_mapping[value] = self._generate_unique_hostname()
+            return self.unique_mapping[value]
 
     def _redact_pattern(self, line: str, pattern_type: str) -> str:
         """Unified redaction method for all patterns"""

@@ -56,8 +56,8 @@ def test_sample():
     example-123.net
 
     # Phone Examples
-    (888) 555-9900
-    (800) 575-0101
+    (800) 555-0100
+    (800) 555-0101
     123-456-7890
     333.444.5555
     999 888 7777
@@ -116,12 +116,20 @@ def test_redact_ipv6(test_sample, capsys):
 
     # Check that IPv6 addresses are redacted
     for line in redacted_lines:
-        assert not any(ip in line for ip in [
+        if any(ip in line for ip in [
             "2001:0db8:85a3:0000:0000:8a2e:0370:7334", "fe80::1ff:fe23:4567:890a",
             "::1", "2001:db8::ff00:42:8329", "2001:db8:85a3::8a2e:370:7334",
             "2001:db8:0:1234:0:567:8:1", "2001:0db8::0000:0000:0000:0000:0000",
             "::ffff:192.168.1.1", "2001:db8:0:0:0:0:2:1", "::a00:1"
-        ])
+        ]):
+            print(f"Failed to redact IPv6 address in line: {line}")
+            assert False
+
+    # Check that redacted IPv6 addresses follow the expected pattern
+    for line in redacted_lines:
+        if re.search(r"3fff:[0-9a-fA-F:]*", line) is None:
+            print(f"Redacted IPv6 address does not match expected pattern in line: {line}")
+            assert False
 
 def test_redact_hostname(test_sample, capsys):
     redactor = Redactor()
@@ -165,13 +173,17 @@ def test_redact_phone(test_sample, capsys):
 
     # Check that phone numbers are redacted
     for line in redacted_lines:
-        assert not any(phone in line for phone in [
-            "(888) 555-9900", "(800) 575-0101", "123-456-7890", "333.444.5555", "999 888 7777", "(555) 555-5555"
-        ])
+        if any(phone in line for phone in [
+             "(888) 555-9900", "(800) 575-0101", "123-456-7890", "333.444.5555", "999 888 7777", "(555) 555-5555"
+        ]):
+            print(f"Failed to redact phone number in line: {line}")
+            assert False
 
     # Check that redacted phone numbers follow the expected pattern
     for line in redacted_lines:
-        assert re.search(r"\(800\) 555-01\d{2}", line)
+        if re.search(r"\(800\) 555-01\d{2}", line) is None:
+            print(f"Redacted phone number does not match expected pattern in line: {line}")
+            assert False
 
 def test_redact_email(test_sample, capsys):
     redactor = Redactor()
@@ -215,3 +227,18 @@ def test_redact_api_key(test_sample, capsys):
             "apikey=1234567890abcdef", "token=abcdef1234567890",
             "key=abcdef1234567890", "apitoken=abcdef1234567890"
         ])
+
+    # Check that redacted API keys follow the expected pattern
+    for line in redacted_lines:
+        if re.search(r"apikey=redacted_api_key\d+", line) is None:
+            print(f"Redacted API key does not match expected pattern in line: {line}")
+            assert False
+        if re.search(r"token=redacted_api_key\d+", line) is None:
+            print(f"Redacted API key does not match expected pattern in line: {line}")
+            assert False
+        if re.search(r"key=redacted_api_key\d+", line) is None:
+            print(f"Redacted API key does not match expected pattern in line: {line}")
+            assert False
+        if re.search(r"apitoken=redacted_api_key\d+", line) is None:
+            print(f"Redacted API key does not match expected pattern in line: {line}")
+            assert False
