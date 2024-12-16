@@ -26,7 +26,7 @@ Support for redacting the following types of data:
 
 1. **Basic Redaction**: Run `python3 redactor.py <path>` where `<path>` is the file, directory, or zip archive you want to redact.
 2. **Interactive Mode**: Run `python3 redactor.py <path> -i` to redact interactively.
-3. **PDF Redaction**: Ensure `PyMuPDF` is installed. Run `python3 redactor.py <path>` where `<path>` is a PDF file.
+3. **PDF Redaction**: Ensure `PyMuPDF` is installed. Run `python3 redactor.py <path>` where `<path>` is a PDF file. [Note: PDF redaction is experimental and may not work as expected.]
 
 The redacted file is saved as `<original-filename>-redacted.<extension>`.
 
@@ -101,10 +101,13 @@ In interactive mode, the script will ask you to confirm each redaction. You can 
 
 ## TODO
 
-- [ ] Add support for redacting social security numbers
+- [ ] Complete rust implementation
+- [ ] Improve redaction of pdf files
+- [ ] Add support for redacting names
 - [ ] Add support for incorporating custom patterns
 - [ ] Add support for incorporating ML models to redact data more accurately
 - [ ] Add support for redacting data in multiple files at once
+- [ ] Add support for redacting social security numbers
 - [ ] Possibly add [phonenumbers](https://pypi.org/project/phonenumbers/) library to redact phone numbers more accurately
 
 ## Credits

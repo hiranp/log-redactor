@@ -1,16 +1,16 @@
 use clap::{App, Arg};
-use env_logger;
-use log::info; // Import logging macros
+use log::{info, warn};
+use lopdf::Document;
 use rand::seq::SliceRandom;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
-use serde_json::json; // Import for json! macro
+use serde_json::json;
 use std::collections::HashMap;
-use std::collections::HashSet; // Import for HashSet
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
-use zip::read::ZipArchive; // Import derive macros // Initialize the logger
+use zip::read::ZipArchive;
 
 #[derive(Serialize, Deserialize)]
 struct Secret {
@@ -86,13 +86,24 @@ impl Redactor {
 
     fn init_patterns() -> HashMap<String, Regex> {
         let mut patterns = HashMap::new();
+
+        // Define patterns directly in the insert calls
         patterns.insert(
             "ipv4".to_string(),
             Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").unwrap(),
         );
-        patterns.insert("ipv6".to_string(), Regex::new(r"([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}").unwrap());
-        patterns.insert("url".to_string(), Regex::new(r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)").unwrap());
-        patterns.insert("hostname".to_string(), Regex::new(r"(?=.{1,255}$)(?!-)[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*\.?").unwrap());
+        patterns.insert(
+            "ipv6".to_string(),
+            Regex::new(r"([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}").unwrap()
+        );
+        patterns.insert(
+            "url".to_string(),
+            Regex::new(r"https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)").unwrap()
+        );
+        patterns.insert(
+            "hostname".to_string(),
+            Regex::new(r"(?=.{1,255}$)(?!-)[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*\.?").unwrap()
+        );
         patterns.insert(
             "phone".to_string(),
             Regex::new(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b").unwrap(),
@@ -103,8 +114,9 @@ impl Redactor {
         );
         patterns.insert(
             "api".to_string(),
-            Regex::new(r"(token|key|api|apikey|apitoken)=[^&\s]*").unwrap(),
+            Regex::new(r"(?i)(token|key|api|apikey|apitoken)=[^&\s]*").unwrap(),
         );
+
         patterns
     }
 
@@ -227,6 +239,7 @@ impl Redactor {
     }
 
     pub fn redact_file(&mut self, file: &str) {
+        info!("Redacting file: {}", file);
         let path = Path::new(file);
         if path.exists() {
             let lines: Vec<String> = io::BufReader::new(File::open(file).unwrap())
@@ -251,14 +264,18 @@ impl Redactor {
                 writeln!(output_file, "{}", line).unwrap();
             }
 
-            self.save_mappings(&format!("{}-mappings.json", file_stem));
+            if let Err(e) = self.save_mappings(&format!("{}-mappings.json", file_stem)) {
+                warn!("Failed to save mappings: {}", e);
+            }
+            info!("File redaction complete");
             println!("Redacted file saved as {}", redacted_file_name);
         } else {
-            println!("File not found: {}", file);
+            warn!("File not found: {}", file);
         }
     }
 
     pub fn redact_directory(&mut self, dir: &str) {
+        info!("Redacting directory: {}", dir);
         let path = Path::new(dir);
         if path.is_dir() {
             for entry in fs::read_dir(path).unwrap() {
@@ -268,12 +285,14 @@ impl Redactor {
                     self.redact_file(path.to_str().unwrap());
                 }
             }
+            info!("Directory redaction complete");
         } else {
-            println!("Directory not found: {}", dir);
+            warn!("Directory not found: {}", dir);
         }
     }
 
     pub fn redact_zip(&mut self, zip_file: &str) {
+        info!("Redacting ZIP archive: {}", zip_file);
         let file = File::open(zip_file).unwrap();
         let mut archive = ZipArchive::new(file).unwrap();
 
@@ -292,48 +311,91 @@ impl Redactor {
                 println!("Redacted file saved as {}", redacted_file_name);
             }
         }
+        info!("ZIP archive redaction complete");
     }
 
     pub fn redact_pdf(&mut self, file: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let pdf_file = PdfFile::<std::fs::File>::open(file)?;
-        let mut doc = pdf_file.into_document();
+        info!("Redacting PDF file: {}", file);
 
-        for page_num in 0..doc.num_pages() {
-            let page = doc.get_page(page_num)?;
-            let contents = page.contents.as_ref().unwrap_or(&vec![]);
-            let mut content_data = Vec::new();
+        let mut doc = Document::load(file)?;
+        let pages = doc.get_pages();
 
-            for &content_id in contents {
-                let content_stream = doc.get_object(content_id)?;
-                content_data.extend_from_slice(&content_stream.data);
+        for (_page_num, &page_id) in &pages {
+            // Get the content streams of the page
+            let content_data = doc.get_page_content(page_id)?;
+            let mut content = lopdf::content::Content::decode(&content_data)?;
+
+            // Iterate over the operations and redact text
+            for operation in &mut content.operations {
+                match operation.operator.as_ref() {
+                    "Tj" | "'" => {
+                        // Text-showing operators with a single string operand
+                        if let Some(literal) = operation.operands.get_mut(0) {
+                            if let lopdf::Object::String(ref mut text, _) = literal {
+                                let redacted = self.redact_string(text)?;
+                                *text = redacted;
+                            }
+                        }
+                    }
+                    "TJ" => {
+                        // Text-showing operator with array of strings and numbers
+                        if let Some(lopdf::Object::Array(ref mut elements)) =
+                            operation.operands.get_mut(0)
+                        {
+                            for elem in elements {
+                                if let lopdf::Object::String(ref mut text, _) = elem {
+                                    let redacted = self.redact_string(text)?;
+                                    *text = redacted;
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
             }
 
-            // Extract text from the content data
-            let text = extract_text(&content_data); // Implement text extraction logic
-
-            // Redact the text
-            let redacted_text = self.redact(vec![text]);
-
-            // Update the page content with redacted text
-            // Implement logic to replace the content streams with redacted text
+            // Encode the modified content stream
+            let redacted_content = content.encode()?;
+            if let Err(e) = doc.change_page_content(page_id, redacted_content) {
+                warn!("Failed to change page content: {}", e);
+            }
         }
 
         // Save the redacted PDF
-        doc.save("redacted.pdf")?;
+        let output_path = format!(
+            "{}-redacted.pdf",
+            Path::new(file)
+                .file_stem()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or("file")
+        );
+        doc.save(&output_path)?;
+
+        info!("PDF redaction complete");
+        println!("Redacted PDF saved as {}", output_path);
+
         Ok(())
     }
 
-    fn save_mappings(&self, filename: &str) {
-        let mappings = json!(self.unique_mapping);
-        let mut file = File::create(filename).unwrap();
-        file.write_all(mappings.to_string().as_bytes()).unwrap();
-    }
-}
+    // Helper method to redact a single string
+    fn redact_string(&mut self, text_bytes: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        // Decode the PDF text (assuming it's encoded in standard encoding)
+        let decoded_text = String::from_utf8(text_bytes.to_vec())?;
 
-// Implement a function to extract text from PDF content data
-fn extract_text(data: &[u8]) -> String {
-    // Implement text extraction from PDF content streams
-    String::new() // Placeholder
+        // Redact the text
+        let redacted_text = self.redact(vec![decoded_text]).join("");
+
+        // Return the redacted text as bytes
+        Ok(redacted_text.into_bytes())
+    }
+
+    fn save_mappings(&self, filename: &str) -> Result<(), std::io::Error> {
+        let mappings = json!(self.unique_mapping);
+        let mut file = File::create(filename)?;
+        file.write_all(mappings.to_string().as_bytes())?;
+        Ok(())
+    }
 }
 
 fn validate_ipv4(ip: &str) -> bool {
@@ -361,6 +423,9 @@ fn validate_hostname(hostname: &str) -> bool {
 }
 
 fn main() {
+    env_logger::init(); // Initialize the logger
+    info!("Starting redaction process");
+
     let matches = App::new("Redactor")
         .version("1.0")
         .author("HP <null@hiranpate.com>")
@@ -414,4 +479,6 @@ fn main() {
             println!("File not found: {}", file);
         }
     }
+
+    info!("Redaction process completed");
 }
