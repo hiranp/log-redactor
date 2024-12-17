@@ -1,4 +1,3 @@
-use ipnet::Ipv6Net;
 use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use lopdf::Document;
@@ -118,7 +117,7 @@ impl Redactor {
         );
         patterns.insert(
             "ipv6".to_string(),
-            Regex::new(r"(?i)\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b").unwrap(),
+            Regex::new(r"(?i)\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b|(?:[0-9a-f]{1,4}:)*(?::[0-9a-f]{1,4})*(?::(?::[0-9a-f]{1,4})*)?").unwrap(),
         );
         patterns.insert(
             "phone".to_string(),
@@ -511,7 +510,7 @@ pub fn validate_ipv4(ip: &str) -> bool {
 }
 
 pub fn validate_ipv6(ip: &str) -> bool {
-    ip.parse::<Ipv6Net>().is_ok()
+    ip.parse::<Ipv6Addr>().is_ok()
 }
 
 pub fn validate_url(url_str: &str) -> bool {
@@ -557,13 +556,23 @@ fn generate_ipv4_address(counter: u32) -> Ipv4Addr {
     Ipv4Addr::new(240, 0, octet3, octet4)
 }
 
-// Generate a new IPv6 address in the 3fff::/20 network
+// Generate a new IPv6 address in the fd00::/8 network (unique local address)
 fn generate_ipv6_address(counter: u32) -> Ipv6Addr {
     let mut segments = [0u16; 8];
-    segments[0] = 0x3fff;
+    segments[0] = 0xfd00; // Using fd00::/8 for unique local addresses
     segments[1] = (counter >> 16) as u16;
-    segments[2] = (counter & 0xFFFF) as u16;
-    Ipv6Addr::new(segments[0], segments[1], segments[2], 0, 0, 0, 0, 0)
+    segments[2] = counter as u16;
+    // Keep the remaining segments as 0 to maintain structure
+    Ipv6Addr::new(
+        segments[0],
+        segments[1],
+        segments[2],
+        segments[3],
+        segments[4],
+        segments[5],
+        segments[6],
+        segments[7],
+    )
 }
 
 // Validates formats: XXX-XXX-XXXX, (XXX) XXX-XXXX, XXX.XXX.XXXX, XXX XXX XXXX

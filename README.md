@@ -103,12 +103,14 @@ In interactive mode, the script will ask you to confirm each redaction. You can 
 
 - [ ] Complete rust implementation
 - [ ] Improve redaction of pdf files
-- [ ] Add support for redacting names
+- [ ] Use third-party libraries to validate strings before redacting
+  - [ ] Use [garde](https://docs.rs/garde/latest/garde/)
+  - [ ] Use validators from [validators](https://docs.rs/validators/latest/validators/)
+  - [ ] Use [phonenumbers](https://pypi.org/project/phonenumbers/) to validate phone numbers
 - [ ] Add support for incorporating custom patterns
 - [ ] Add support for incorporating ML models to redact data more accurately
 - [ ] Add support for redacting data in multiple files at once
 - [ ] Add support for redacting social security numbers
-- [ ] Possibly add [phonenumbers](https://pypi.org/project/phonenumbers/) library to redact phone numbers more accurately
 
 ## Credits
 
