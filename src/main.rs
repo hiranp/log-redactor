@@ -4,9 +4,6 @@ use log::info;
 use log_redactor::Redactor;
 use std::env;
 use std::path::{Path, PathBuf};
-use tar::Archive;
-use flate2::read::GzDecoder;
-use std::fs::File;
 
 fn main() {
     let matches = Command::new("Redactor")
