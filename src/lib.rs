@@ -1,6 +1,6 @@
 use ipnet::Ipv6Net;
 use lazy_static::lazy_static;
-use log::{info, warn};
+use log::{debug, info, warn};
 use lopdf::Document;
 use rand::seq::SliceRandom;
 use regex::Regex;
@@ -64,7 +64,7 @@ lazy_static! {
     static ref EMAIL_REGEX: Regex =
         Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
     static ref API_REGEX: Regex =
-        Regex::new(r"(?i)(token|key|api|apikey|apitoken)=([^&\s]+)").unwrap();
+        Regex::new(r"(?P<key_type>\b(?:apikey|token|key)\b)=[A-Za-z0-9._~+/-]+=*").unwrap();
 }
 
 impl Redactor {
@@ -457,16 +457,18 @@ impl Redactor {
         email
     }
 
-    fn generate_api_key(&mut self, value: &str) -> String {
-        // Extract the exact key type from the original value
-        let key_type = value.split('=').next().unwrap_or("token");
+    fn generate_api_key(&mut self, key_type: &str) -> String {
         let count = {
-            let counter = self.counter.entry(key_type.to_string()).or_insert(0);
+            let counter = self.counter.entry(format!("{}_key", key_type)).or_insert(0);
             let current = *counter;
             *counter += 1;
+            debug!("Counter for {}: {}", key_type, current);
             current
         };
-        format!("{}=redacted_{}", key_type, count)
+
+        let redacted = format!("{}=redacted_{}", key_type, count);
+        debug!("Generated redacted key: {}", redacted);
+        redacted
     }
 }
 

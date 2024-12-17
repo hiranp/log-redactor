@@ -82,10 +82,26 @@ mod tests {
         let test_cases = vec![
             ("apikey=abc123def456", true),
             ("token=xyz789", true),
+            ("key=f32342351235wqer32145340", true),
             ("invalid-key", false),
             ("apikey=", false),
         ];
         run_validation_test("API Key", test_cases, validate_api, true);
+    }
+
+    #[test]
+    fn test_api_key_redaction() {
+        let mut redactor = Redactor::new(false);
+        let test_cases = vec![
+            ("key=f32342351235wqer32145340", "key=redacted_0"),
+            ("token=abcdef1234567890", "token=redacted_0"),
+            ("apikey=secretvalue123", "apikey=redacted_0"),
+        ];
+
+        for (input, expected) in test_cases {
+            let result = redactor.redact(vec![input.to_string()]);
+            assert_eq!(result[0], expected, "Failed on input: {}", input);
+        }
     }
 
     #[test]
