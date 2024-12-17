@@ -22,13 +22,43 @@ Support for redacting the following types of data:
 - Email Addresses
 - API Keys
 
-## Usage
+## Python Usage
 
-1. **Basic Redaction**: Run `python3 redactor.py <path>` where `<path>` is the file, directory, or zip archive you want to redact.
+1. **Basic Redaction**: Run `python3 redactor.py <path>` where `<path>` is the file, directory, or (tar, gzip, or zip) archive you want to redact.
 2. **Interactive Mode**: Run `python3 redactor.py <path> -i` to redact interactively.
 3. **PDF Redaction**: Ensure `PyMuPDF` is installed. Run `python3 redactor.py <path>` where `<path>` is a PDF file. [Note: PDF redaction is experimental and may not work as expected.]
 
 The redacted file is saved as `<original-filename>-redacted.<extension>`.
+
+## Rust Usage
+
+1. **Basic Redaction**: Run `cargo run --release -- <path>` where `<path>` is the file, directory, or archive (tar, tar.gz, tgz, zip, or pdf) you want to redact.
+2. **Interactive Mode**: Run `cargo run --release -- <path> -i yes` to redact interactively. Enter 'yes' or 'no' when prompted.
+3. **Specify Secrets File**: Use the `-s` or `--secrets` flag to specify the path to the secrets file. Example: `cargo run --release -- <path> -s /path/to/secrets.csv`
+4. **Specify Ignores File**: Use the `-g` or `--ignores` flag to specify the path to the ignores file. Example: `cargo run --release -- <path> -g /path/to/ignore.csv`
+
+### Examples
+
+- **Redact a directory**:
+  ```sh
+  cargo run --release -- /path/to/directory
+    ```
+- **Redact a file**:
+  ```sh
+  cargo run --release -- /path/to/file.txt (tar.gz, tgz, zip, pdf)
+  ```
+- **Redact interactively**:
+  ```sh
+    cargo run --release -- /path/to/file.txt -i yes
+    ```
+- **Redact a file with custom secrets and ignores**:
+    ```sh
+    cargo run --release -- /path/to/file.txt -s /path/to/secrets.csv -g /path/to/ignore.csv
+    ```
+- **More help**:
+  ```sh
+  cargo run --release -- --help
+  ```
 
 ## How it works
 

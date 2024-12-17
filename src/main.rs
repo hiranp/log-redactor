@@ -9,7 +9,7 @@ fn main() {
     let matches = Command::new("Redactor")
         .version("1.0")
         .author("HP <null@hiranpatel.com>")
-        .about("Redacts sensitive information from files, directories, or ZIP archives")
+        .about("Redacts sensitive information within files, directories, or TAR,GZ, and ZIP archives")
         .arg(
             Arg::new("path")
                 .help("The path to a file, directory, or ZIP archive to redact")
