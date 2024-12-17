@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 fn main() {
     let matches = Command::new("Redactor")
-        .version("1.0")
+        .version("1.0b")
         .author("HP <null@hiranpatel.com>")
         .about("Redacts sensitive information within files, directories, or TAR,GZ, and ZIP archives")
         .arg(
@@ -22,7 +22,7 @@ fn main() {
                 .long("interactive")
                 .help("Run in interactive mode (enter 'yes' or 'no')")
                 .value_name("BOOLEAN")
-                .value_parser(PossibleValuesParser::new(&["yes", "no"])),
+                .value_parser(PossibleValuesParser::new(["yes", "no"])),
         )
         .arg(
             Arg::new("secrets")
@@ -49,12 +49,12 @@ fn main() {
 
     let secrets_file = matches
         .get_one::<String>("secrets")
-        .map(|s| PathBuf::from(s))
+        .map(PathBuf::from)
         .unwrap_or(default_secrets_file);
 
     let ignores_file = matches
         .get_one::<String>("ignores")
-        .map(|s| PathBuf::from(s))
+        .map(PathBuf::from)
         .unwrap_or(default_ignores_file);
 
     let mut redactor = Redactor::new(

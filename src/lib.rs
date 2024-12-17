@@ -243,11 +243,7 @@ impl Redactor {
 
         for cap in captures {
             // Use the entire match for API keys to preserve the original format
-            let value = if pattern_type == "api" {
-                cap.get(0).unwrap().as_str()
-            } else {
-                cap.get(0).unwrap().as_str()
-            };
+            let value = cap.get(0).unwrap().as_str();
 
             let should_redact = if secrets_set.contains(value) {
                 true
@@ -581,9 +577,9 @@ pub fn validate_hostname(hostname: &str) -> bool {
 // A hostname is valid if the following condition are true:
 pub fn is_valid_hostname(hostname: &str) -> bool {
     fn is_valid_char(byte: u8) -> bool {
-        (b'a'..=b'z').contains(&byte)
-            || (b'A'..=b'Z').contains(&byte)
-            || (b'0'..=b'9').contains(&byte)
+        byte.is_ascii_lowercase()
+            || byte.is_ascii_uppercase()
+            || byte.is_ascii_digit()
             || byte == b'-'
             || byte == b'.'
     }
