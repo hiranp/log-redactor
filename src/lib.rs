@@ -73,8 +73,9 @@ lazy_static! {
             .unwrap();
     static ref EMAIL_REGEX: Regex =
         Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
-    static ref API_REGEX: Regex =
-        Regex::new(r"(?P<key_type>\b(?:apikey|token|key)\b)=[A-Za-z0-9._~+/-]+=*").unwrap();
+    static ref API_REGEX: Regex = Regex::new(
+        r"(?i)(?P<key_type>apikey|apitoken|api|token|key)=(?P<value>[A-Za-z0-9._~+/-]+=*)"
+    ).unwrap();
 }
 
 impl Redactor {
@@ -215,8 +216,7 @@ impl Redactor {
     }
 
     fn redact_pattern(&mut self, line: &str, pattern_type: &str) -> String {
-        // Add check for already redacted content
-        if line.contains("redacted-") {
+        if line.contains("redacted-") || line.contains("redacted_") {
             return line.to_string();
         }
 
@@ -248,20 +248,26 @@ impl Redactor {
         let mut redacted_line = line.to_string();
 
         for cap in captures {
-            // Use the entire match for API keys to preserve the original format
-            let value = cap.get(0).unwrap().as_str();
+            let value = if pattern_type == "api" {
+                // For API keys, capture both the key type and value
+                let key_type = cap.name("key_type").map_or("api", |m| m.as_str());
+                let full_match = cap.get(0).unwrap().as_str();
+                (key_type, full_match)
+            } else {
+                (pattern_type, cap.get(0).unwrap().as_str())
+            };
 
-            let should_redact = if secrets_set.contains(value) {
+            let should_redact = if secrets_set.contains(value.1) {
                 true
-            } else if ignore_set.contains(value) {
+            } else if ignore_set.contains(value.1) {
                 false
             } else {
-                validator_fn(value) && (!interactive || self.ask_user(value, pattern_type))
+                validator_fn(value.1) && (!interactive || self.ask_user(value.1, value.0))
             };
 
             if should_redact {
-                let replacement = self.generate_unique_mapping(value, pattern_type);
-                redacted_line = redacted_line.replace(value, &replacement);
+                let replacement = self.generate_unique_mapping(value.1, value.0);
+                redacted_line = redacted_line.replace(value.1, &replacement);
             }
         }
 
@@ -502,14 +508,18 @@ impl Redactor {
     }
 
     fn generate_api_key(&mut self, key_type: &str) -> String {
+        let normalized_type = key_type.to_lowercase();
+        let counter_key = format!("{}_key", normalized_type);
+        
         let count = {
-            let counter = self.counter.entry(format!("{}_key", key_type)).or_insert(0);
+            let counter = self.counter.entry(counter_key).or_insert(0);
             let current = *counter;
             *counter += 1;
-            debug!("Counter for {}: {}", key_type, current);
+            debug!("Counter for {}: {}", normalized_type, current);
             current
         };
 
+        // Preserve the original key type format in the redacted output
         let redacted = format!("{}=redacted_{}", key_type, count);
         debug!("Generated redacted key: {}", redacted);
         redacted

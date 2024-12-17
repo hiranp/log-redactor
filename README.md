@@ -6,10 +6,22 @@
 [![Commit activity](https://img.shields.io/github/commit-activity/m/hiranp/log-redactor)](https://img.shields.io/github/commit-activity/m/hiranp/log-redactor)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Utility to redact/mask key parts of logs and other files that need to be shared. It can redact email addresses, IP addresses, phone numbers, names, URLs, and API keys. It can also redact custom patterns if interactive mode is enabled. The script reads from `secrets.csv` and `ignore.csv` to keep track of sensitive information and patterns to ignore.
+Utility to redact/mask key parts of logs and other files that need to be shared with breaking orignal log structure.  It can redact IPV4 and IPV6 addresses, hostnames, URLs, email addresses, phone numbers, names, and API keys. It can also redact custom patterns if interactive mode is enabled. The script reads from `secrets.csv` and `ignore.csv` to keep track of sensitive information and patterns to ignore.
+
+The underlying redaction logic is implemented in both Python and Rust. The Python implementation is more feature-rich and supports redacting data from a variety of file types, including PDFs. The Rust implementation is faster and can redact data from tar, tar.gz, tgz, zip, and PDF files.
+
+Unique features of the script include:
+- The **redaction output** conforms to original data types (e.g., IP addresses are redacted to valid IP addresses) to ensure the entire log remains valid and usable
+- Redaction of sensitive data from a variety of file types, including PDFs
+- Interactive mode to confirm redaction of sensitive data
+- Support for custom patterns in `secrets.csv` and `ignore.csv`
+- Support for redacting data from tar, tar.gz, tgz, zip, and PDF files
+
 
 - **GitHub repository**: <https://github.com/hiranp/log-redactor/>
 - **Documentation**: <https://github.com/hiranp/log-redactor/blob/main/docs/index.md>
+
+
 
 ## Features
 
