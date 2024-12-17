@@ -65,6 +65,9 @@ impl Redactor {
         validators.insert("ipv6".to_string(), validate_ipv6);
         validators.insert("url".to_string(), validate_url);
         validators.insert("hostname".to_string(), validate_hostname);
+        validators.insert("phone".to_string(), |_| true); // Add phone validator
+        validators.insert("email".to_string(), |_| true); // Add email validator
+        validators.insert("api".to_string(), |_| true); // Add API validator
 
         let config = RedactorConfig::from_files("secrets.csv", "ignore.csv").unwrap_or_default();
 
@@ -91,12 +94,29 @@ impl Redactor {
         let mut patterns = HashMap::new();
 
         patterns.insert(
+            "ipv4".to_string(),
+            Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").unwrap(),
+        );
+        patterns.insert(
+            "ipv6".to_string(),
+            Regex::new(r"\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b|(?::(?::[A-Fa-f0-9]{1,4}){1,6}|[A-Fa-f0-9]{1,4}:(?::[A-Fa-f0-9]{1,4}){1,5}|(?:[A-Fa-f0-9]{1,4}:){2}(?::[A-Fa-f0-9]{1,4}){1,4}|(?:[A-Fa-f0-9]{1,4}:){3}(?::[A-Fa-f0-9]{1,4}){1,3}|(?:[A-Fa-f0-9]{1,4}:){4}(?::[A-Fa-f0-9]{1,4}){1,2}|(?:[A-Fa-f0-9]{1,4}:){5}:[A-Fa-f0-9]{1,4}|(?:[A-Fa-f0-9]{1,4}:){6}:)\b").unwrap(),
+        );
+        patterns.insert(
             "phone".to_string(),
             Regex::new(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b").unwrap(),
         );
         patterns.insert(
             "email".to_string(),
             Regex::new(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+").unwrap(),
+        );
+        patterns.insert(
+            "url".to_string(),
+            Regex::new(r"https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+[^\s]*").unwrap(),
+        );
+        patterns.insert(
+            "hostname".to_string(),
+            Regex::new(r"(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}")
+                .unwrap(),
         );
         patterns.insert(
             "api".to_string(),
@@ -172,6 +192,7 @@ impl Redactor {
     }
 
     fn redact_pattern(&mut self, line: &str, pattern_type: &str) -> String {
+        println!("Redacting pattern type: {}", pattern_type); // Debug line
         let pattern = &self.patterns[pattern_type];
         let captures: Vec<_> = pattern.captures_iter(line).collect();
 

@@ -215,6 +215,23 @@ fn test_redact_hostname() {
 }
 
 #[test]
+fn test_redact_phone_direct() {
+    let mut redactor = Redactor::new(false); // Provide the boolean argument here
+    let lines = vec![
+        "Call me at 123-456-7890".to_string(),
+        "My number is 333.444.5555".to_string(),
+        "Reach me at 999 888 7777".to_string(),
+    ];
+    let redacted_lines = redactor.redact(lines);
+
+    for line in redacted_lines {
+        assert!(!line.contains("123-456-7890"));
+        assert!(!line.contains("333.444.5555"));
+        assert!(!line.contains("999 888 7777"));
+    }
+}
+
+#[test]
 fn test_redact_phone() {
     let mut redactor = Redactor::new(false);
     let redacted_lines = redactor.redact(get_log_lines());
