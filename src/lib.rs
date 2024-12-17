@@ -1,4 +1,5 @@
 use ipnet::{Ipv4Net, Ipv6Net};
+use lazy_static::lazy_static;
 use log::{info, warn};
 use lopdf::Document;
 use rand::seq::SliceRandom;
@@ -56,6 +57,16 @@ pub struct Redactor {
     phone_formats: Vec<String>,
 }
 
+lazy_static! {
+    static ref PHONE_REGEX: Regex =
+        Regex::new(r"^\s*(?:\+?1[-. ]?)?\s*\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})\s*$")
+            .unwrap();
+    static ref EMAIL_REGEX: Regex =
+        Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+    static ref API_REGEX: Regex =
+        Regex::new(r"^(api|key|token|apikey|apitoken)=[A-Za-z0-9._~+/-]+=*$").unwrap();
+}
+
 impl Redactor {
     pub fn new(interactive: bool) -> Self {
         let patterns = Self::init_patterns();
@@ -65,9 +76,9 @@ impl Redactor {
         validators.insert("ipv6".to_string(), validate_ipv6);
         validators.insert("url".to_string(), validate_url);
         validators.insert("hostname".to_string(), validate_hostname);
-        validators.insert("phone".to_string(), |_| true); // Add phone validator
-        validators.insert("email".to_string(), |_| true); // Add email validator
-        validators.insert("api".to_string(), |_| true); // Add API validator
+        validators.insert("phone".to_string(), validate_phone);
+        validators.insert("email".to_string(), validate_email);
+        validators.insert("api".to_string(), validate_api);
 
         let config = RedactorConfig::from_files("secrets.csv", "ignore.csv").unwrap_or_default();
 
@@ -99,7 +110,7 @@ impl Redactor {
         );
         patterns.insert(
             "ipv6".to_string(),
-            Regex::new(r"\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b|(?::(?::[A-Fa-f0-9]{1,4}){1,6}|[A-Fa-f0-9]{1,4}:(?::[A-Fa-f0-9]{1,4}){1,5}|(?:[A-Fa-f0-9]{1,4}:){2}(?::[A-Fa-f0-9]{1,4}){1,4}|(?:[A-Fa-f0-9]{1,4}:){3}(?::[A-Fa-f0-9]{1,4}){1,3}|(?:[A-Fa-f0-9]{1,4}:){4}(?::[A-Fa-f0-9]{1,4}){1,2}|(?:[A-Fa-f0-9]{1,4}:){5}:[A-Fa-f0-9]{1,4}|(?:[A-Fa-f0-9]{1,4}:){6}:)\b").unwrap(),
+            Regex::new(r"\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b|(?::(?::[A-Fa-f0-9]{1,4}){1,6}|[A-Fa-f0-9]{1,4}:(?::[A-Fa-f0-9]{1,5}|(?:[A-Fa-f0-9]{1,4}:){2}(?::[A-Fa-f0-9]{1,4}){1,4}|(?:[A-Fa-f0-9]{1,4}:){3}(?::[A-Fa-f0-9]{1,4}){1,3}|(?:[A-Fa-f0-9]{1,4}:){4}(?::[A-Fa-f0-9]{1,4}){1,2}|(?:[A-Fa-f0-9]{1,4}:){5}:[A-Fa-f0-9]{1,4}|(?:[A-Fa-f0-9]{1,4}:){6}:)\b").unwrap(),
         );
         patterns.insert(
             "phone".to_string(),
@@ -490,4 +501,17 @@ fn generate_ipv6_address(counter: u32) -> Ipv6Addr {
     segments[1] = (counter >> 16) as u16;
     segments[2] = (counter & 0xFFFF) as u16;
     Ipv6Addr::new(segments[0], segments[1], segments[2], 0, 0, 0, 0, 0)
+}
+
+// Validates formats: XXX-XXX-XXXX, (XXX) XXX-XXXX, XXX.XXX.XXXX, XXX XXX XXXX
+pub fn validate_phone(phone: &str) -> bool {
+    PHONE_REGEX.is_match(phone)
+}
+
+pub fn validate_email(email: &str) -> bool {
+    EMAIL_REGEX.is_match(email)
+}
+
+pub fn validate_api(api: &str) -> bool {
+    API_REGEX.is_match(api)
 }
