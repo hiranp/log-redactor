@@ -107,6 +107,10 @@ impl Redactor {
     }
 
     fn generate_unique_mapping(&mut self, value: &str, secret_type: &str) -> String {
+        println!(
+            "Generating unique mapping for value: {}, secret_type: {}",
+            value, secret_type
+        );
         if !self.unique_mapping.contains_key(value) {
             let mapped_value = match secret_type {
                 "ipv4" => {
@@ -380,6 +384,7 @@ impl Redactor {
     fn generate_phone_number(&mut self) -> String {
         let format = self.phone_formats.choose(&mut rand::thread_rng()).unwrap();
         let count = self.counter.entry("phone".to_string()).or_insert(0);
+        println!("Generating phone number with count: {}", count);
         let mapped_phone = match format.as_str() {
             "({}) {}-{:04}" => format!("(800) 555-{:04}", count),
             "{}-{}-{:04}" => format!("800-555-{:04}", count),
@@ -391,31 +396,24 @@ impl Redactor {
     }
 
     fn generate_hostname(&mut self) -> String {
-        let hostname = format!(
-            "redacted_host{}.example.com",
-            self.counter.get("hostname").unwrap_or(&0)
-        );
-        self.counter
-            .entry("hostname".to_string())
-            .and_modify(|e| *e += 1)
-            .or_insert(1);
+        let count = self.counter.entry("hostname".to_string()).or_insert(0);
+        println!("Generating hostname with count: {}", count);
+        let hostname = format!("redacted_host{}.example.com", count);
+        *self.counter.get_mut("hostname").unwrap() += 1;
         hostname
     }
 
     fn generate_url(&mut self) -> String {
-        let url = format!(
-            "https://www.example{}.com",
-            self.counter.get("url").unwrap_or(&0)
-        );
-        self.counter
-            .entry("url".to_string())
-            .and_modify(|e| *e += 1)
-            .or_insert(1);
+        let count = self.counter.entry("url".to_string()).or_insert(0);
+        println!("Generating URL with count: {}", count);
+        let url = format!("https://www.example{}.com", count);
+        *self.counter.get_mut("url").unwrap() += 1;
         url
     }
 
     fn generate_email(&mut self) -> String {
         let count = self.counter.entry("email".to_string()).or_insert(0);
+        println!("Generating email with count: {}", count);
         let email = format!("redacted{}@example.com", count);
         *self.counter.get_mut("email").unwrap() += 1;
         email
@@ -423,6 +421,10 @@ impl Redactor {
 
     fn generate_api_key(&mut self, prefix: &str) -> String {
         let count = self.counter.entry(prefix.to_string()).or_insert(0);
+        println!(
+            "Generating API key with prefix: {}, count: {}",
+            prefix, count
+        );
         let api_key = format!("{}_redacted_{}", prefix, count);
         *self.counter.get_mut(prefix).unwrap() += 1;
         api_key
