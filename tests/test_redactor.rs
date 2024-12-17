@@ -26,7 +26,7 @@ fn sample_log_file() -> Vec<String> {
             std::process::exit(1);
         }
     };
-    let mut redactor = Redactor::new(false);
+    let mut redactor = Redactor::new(false, "dummy_secrets.csv", "dummy_ignores.csv");
     let redacted_lines = redactor.redact(lines);
 
     for line in &redacted_lines {
@@ -125,8 +125,9 @@ fn print_redaction_result(pattern_type: &str, original: &str, redacted: &str) {
 
 #[test]
 fn test_redact_ipv4() {
-    let mut redactor = Redactor::new(false);
-    let redacted_lines = redactor.redact(get_log_lines());
+    let mut redactor = Redactor::new(false, "dummy_secrets.csv", "dummy_ignores.csv");
+    let log_lines = get_log_lines();
+    let redacted_lines = redactor.redact(log_lines);
 
     println!("\nIPv4 Redaction Results:");
     println!("=======================");
@@ -168,8 +169,9 @@ fn test_redact_ipv4() {
 
 #[test]
 fn test_redact_ipv6() {
-    let mut redactor = Redactor::new(false);
-    let redacted_lines = redactor.redact(get_log_lines());
+    let mut redactor = Redactor::new(false, "dummy_secrets.csv", "dummy_ignores.csv");
+    let log_lines = get_log_lines();
+    let redacted_lines = redactor.redact(log_lines);
 
     println!("\nIPv6 Redaction Results:");
     println!("=======================");
@@ -199,8 +201,9 @@ fn test_redact_ipv6() {
 
 #[test]
 fn test_redact_hostname() {
-    let mut redactor = Redactor::new(false);
-    let redacted_lines = redactor.redact(get_log_lines());
+    let mut redactor = Redactor::new(false, "dummy_secrets.csv", "dummy_ignores.csv");
+    let log_lines = get_log_lines();
+    let redacted_lines = redactor.redact(log_lines);
 
     println!("\nHostname Redaction Results:");
     println!("===========================");
@@ -239,7 +242,7 @@ fn test_redact_hostname() {
 
 #[test]
 fn test_redact_phone_direct() {
-    let mut redactor = Redactor::new(false); // Provide the boolean argument here
+    let mut redactor = Redactor::new(false, "dummy_secrets.csv", "dummy_ignores.csv");
     let lines = vec![
         "Call me at 123-456-7890".to_string(),
         "My number is 333.444.5555".to_string(),
@@ -268,8 +271,9 @@ fn test_redact_phone_direct() {
 
 #[test]
 fn test_redact_phone() {
-    let mut redactor = Redactor::new(false);
-    let redacted_lines = redactor.redact(get_log_lines());
+    let mut redactor = Redactor::new(false, "dummy_secrets.csv", "dummy_ignores.csv");
+    let log_lines = get_log_lines();
+    let redacted_lines = redactor.redact(log_lines);
 
     println!("\nPhone Redaction Results:");
     println!("========================");
@@ -305,8 +309,9 @@ fn test_redact_phone() {
 
 #[test]
 fn test_redact_email() {
-    let mut redactor = Redactor::new(false);
-    let redacted_lines = redactor.redact(get_log_lines());
+    let mut redactor = Redactor::new(false, "dummy_secrets.csv", "dummy_ignores.csv");
+    let log_lines = get_log_lines();
+    let redacted_lines = redactor.redact(log_lines);
 
     println!("\nEmail Redaction Results:");
     println!("========================");
@@ -341,8 +346,9 @@ fn test_redact_email() {
 
 #[test]
 fn test_redact_url() {
-    let mut redactor = Redactor::new(false);
-    let redacted_lines = redactor.redact(get_log_lines());
+    let mut redactor = Redactor::new(false, "dummy_secrets.csv", "dummy_ignores.csv");
+    let log_lines = get_log_lines();
+    let redacted_lines = redactor.redact(log_lines);
 
     println!("\nURL Redaction Results:");
     println!("======================");
@@ -377,8 +383,9 @@ fn test_redact_url() {
 
 #[test]
 fn test_redact_api_key() {
-    let mut redactor = Redactor::new(false);
-    let redacted_lines = redactor.redact(get_log_lines());
+    let mut redactor = Redactor::new(false, "dummy_secrets.csv", "dummy_ignores.csv");
+    let log_lines = get_log_lines();
+    let redacted_lines = redactor.redact(log_lines);
 
     println!("\nAPI Key Redaction Results:");
     println!("==========================");
@@ -412,7 +419,7 @@ fn test_redact_api_key() {
 
 #[test]
 fn test_redact_zip() {
-    let mut redactor = Redactor::new(false);
+    let mut redactor = Redactor::new(false, "dummy_secrets.csv", "dummy_ignores.csv");
     redactor.redact_zip("samples/sample.zip");
 
     // Add assertions to verify the redacted content in the ZIP file
