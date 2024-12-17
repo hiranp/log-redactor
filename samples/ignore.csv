@@ -1,0 +1,6 @@
+ipv4,127.0.0.1
+email,admin@example.com
+phone,555-555-5555
+hostname,localhost
+url,http://localhost
+api,apikey=ignorethisapikey

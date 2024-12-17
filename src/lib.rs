@@ -14,7 +14,6 @@ use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::path::Path;
 use zip::read::ZipArchive;
-
 pub mod redaction_utils;
 
 #[derive(Serialize, Deserialize)]
@@ -35,17 +34,26 @@ pub struct RedactorConfig {
 
 impl RedactorConfig {
     pub fn from_files(secrets_file: &str, ignores_file: &str) -> Result<Self, std::io::Error> {
-        let secrets = File::open(secrets_file)
-            .ok()
-            .map(|file| serde_json::from_reader(BufReader::new(file)).unwrap_or_default());
+        let secrets = if Path::new(secrets_file).exists() {
+            File::open(secrets_file)
+                .ok()
+                .map(|file| serde_json::from_reader(BufReader::new(file)).unwrap_or_default())
+        } else {
+            None
+        };
 
-        let ignores = File::open(ignores_file)
-            .ok()
-            .map(|file| serde_json::from_reader(BufReader::new(file)).unwrap_or_default());
+        let ignores = if Path::new(ignores_file).exists() {
+            File::open(ignores_file)
+                .ok()
+                .map(|file| serde_json::from_reader(BufReader::new(file)).unwrap_or_default())
+        } else {
+            None
+        };
 
         Ok(RedactorConfig { secrets, ignores })
     }
 }
+
 pub struct Redactor {
     patterns: HashMap<String, Regex>,
     validators: HashMap<String, fn(&str) -> bool>,
@@ -68,19 +76,19 @@ lazy_static! {
 }
 
 impl Redactor {
-    pub fn new(interactive: bool) -> Self {
+    pub fn new(interactive: bool, secrets_file: &str, ignores_file: &str) -> Self {
         let patterns = Self::init_patterns();
 
         let mut validators: HashMap<String, fn(&str) -> bool> = HashMap::new();
         validators.insert("ipv4".to_string(), validate_ipv4);
         validators.insert("ipv6".to_string(), validate_ipv6);
         validators.insert("url".to_string(), validate_url);
-        validators.insert("hostname".to_string(), validate_hostname);
+        validators.insert("hostname".to_string(), is_valid_hostname);
         validators.insert("phone".to_string(), validate_phone);
-        validators.insert("email".to_string(), validate_email);
+        validators.insert("email".to_string(), is_valid_email);
         validators.insert("api".to_string(), validate_api);
 
-        let config = RedactorConfig::from_files("secrets.csv", "ignore.csv").unwrap_or_default();
+        let config = RedactorConfig::from_files(secrets_file, ignores_file).unwrap_or_default();
 
         let phone_formats = vec![
             "({}) {}-{:04}".to_string(),
@@ -522,6 +530,26 @@ pub fn validate_hostname(hostname: &str) -> bool {
     labels.iter().all(|label| hostname_regex.is_match(label))
 }
 
+// hostname-validator: https://docs.rs/crate/hostname-validator/latest
+// REFS: https://tools.ietf.org/html/rfc1123
+// A hostname is valid if the following condition are true:
+pub fn is_valid_hostname(hostname: &str) -> bool {
+    fn is_valid_char(byte: u8) -> bool {
+        (b'a'..=b'z').contains(&byte)
+            || (b'A'..=b'Z').contains(&byte)
+            || (b'0'..=b'9').contains(&byte)
+            || byte == b'-'
+            || byte == b'.'
+    }
+
+    !(hostname.bytes().any(|byte| !is_valid_char(byte))
+        || hostname.split('.').any(|label| {
+            label.is_empty() || label.len() > 63 || label.starts_with('-') || label.ends_with('-')
+        })
+        || hostname.is_empty()
+        || hostname.len() > 253)
+}
+
 // Generates a new IPv4 address in the 240.0.0.0/4 network
 fn generate_ipv4_address(counter: u32) -> Ipv4Addr {
     let octet3 = (counter >> 8) as u8;
@@ -545,6 +573,10 @@ pub fn validate_phone(phone: &str) -> bool {
 
 pub fn validate_email(email: &str) -> bool {
     EMAIL_REGEX.is_match(email)
+}
+
+pub fn is_valid_email(email: &str) -> bool {
+    email_address::EmailAddress::is_valid(email)
 }
 
 pub fn validate_api(api: &str) -> bool {

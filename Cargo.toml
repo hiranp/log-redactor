@@ -20,6 +20,7 @@ rand = "0.8"
 lopdf = { version = "0.34", features = ["nom_parser"] }
 ipnet = "2.7.0"
 lazy_static = "1.5.0"
+email_address = "0.2.9"
 
 [lib]
 path = "src/lib.rs"

@@ -321,3 +321,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# TODO: Add more patterns and validators
+# - https://github.com/bnkc/emval - Email Validator
