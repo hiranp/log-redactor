@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 fn main() {
     let matches = Command::new("Redactor")
         .version("1.0")
-        .author("HP <null@hiranpate.com>")
+        .author("HP <null@hiranpatel.com>")
         .about("Redacts sensitive information from files, directories, or ZIP archives")
         .arg(
             Arg::new("path")

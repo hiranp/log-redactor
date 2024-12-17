@@ -20,6 +20,7 @@ cross build --target x86_64-pc-windows-gnu --release
 echo "Build completed successfully."
 
 # show compiled binaries
-echo "Compiled binaries:"
+echo "Compiled binaries located in:"
+echo "target/x86_64-unknown-linux-gnu/release/ and target/x86_64-pc-windows-gnu/release/"
 ls -lh target/x86_64-unknown-linux-gnu/release/
 ls -lh target/x86_64-pc-windows-gnu/release/
