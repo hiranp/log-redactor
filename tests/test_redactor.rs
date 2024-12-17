@@ -115,10 +115,21 @@ fn get_log_lines() -> Vec<String> {
     }
 }
 
+fn print_redaction_result(pattern_type: &str, original: &str, redacted: &str) {
+    println!("----------------------------------------");
+    println!("Pattern Type: {}", pattern_type);
+    println!("Original: {}", original);
+    println!("Redacted: {}", redacted);
+    println!("----------------------------------------");
+}
+
 #[test]
 fn test_redact_ipv4() {
     let mut redactor = Redactor::new(false);
     let redacted_lines = redactor.redact(get_log_lines());
+
+    println!("\nIPv4 Redaction Results:");
+    println!("=======================");
 
     let ipv4_addresses = vec![
         "192.168.1.1",
@@ -136,8 +147,10 @@ fn test_redact_ipv4() {
     let mut redacted_ips = Vec::new();
 
     for line in redacted_lines {
-        println!("Line: {}", line);
         for ip in &ipv4_addresses {
+            if line.contains(ip) {
+                print_redaction_result("IPv4", ip, &line);
+            }
             assert!(!line.contains(ip));
         }
 
@@ -150,13 +163,16 @@ fn test_redact_ipv4() {
         }
     }
 
-    println!("Redacted IPs: {:?}", redacted_ips);
+    println!("\nRedacted IPs: {:?}", redacted_ips);
 }
 
 #[test]
 fn test_redact_ipv6() {
     let mut redactor = Redactor::new(false);
     let redacted_lines = redactor.redact(get_log_lines());
+
+    println!("\nIPv6 Redaction Results:");
+    println!("=======================");
 
     let ipv6_addresses = vec![
         "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
@@ -172,8 +188,10 @@ fn test_redact_ipv6() {
     ];
 
     for line in redacted_lines {
-        println!("Line: {}", line);
         for ip in &ipv6_addresses {
+            if line.contains(ip) {
+                print_redaction_result("IPv6", ip, &line);
+            }
             assert!(!line.contains(ip));
         }
     }
@@ -183,6 +201,9 @@ fn test_redact_ipv6() {
 fn test_redact_hostname() {
     let mut redactor = Redactor::new(false);
     let redacted_lines = redactor.redact(get_log_lines());
+
+    println!("\nHostname Redaction Results:");
+    println!("===========================");
 
     let hostnames = vec![
         "example.com",
@@ -199,8 +220,10 @@ fn test_redact_hostname() {
     let mut redacted_hostnames = Vec::new();
 
     for line in redacted_lines {
-        println!("Line: {}", line);
         for hostname in &hostnames {
+            if line.contains(hostname) {
+                print_redaction_result("Hostname", hostname, &line);
+            }
             assert!(!line.contains(hostname));
         }
 
@@ -211,7 +234,7 @@ fn test_redact_hostname() {
         }
     }
 
-    println!("Redacted Hostnames: {:?}", redacted_hostnames);
+    println!("\nRedacted Hostnames: {:?}", redacted_hostnames);
 }
 
 #[test]
@@ -224,7 +247,19 @@ fn test_redact_phone_direct() {
     ];
     let redacted_lines = redactor.redact(lines);
 
+    println!("\nPhone Redaction Results:");
+    println!("========================");
+
     for line in redacted_lines {
+        if line.contains("123-456-7890") {
+            print_redaction_result("Phone", "123-456-7890", &line);
+        }
+        if line.contains("333.444.5555") {
+            print_redaction_result("Phone", "333.444.5555", &line);
+        }
+        if line.contains("999 888 7777") {
+            print_redaction_result("Phone", "999 888 7777", &line);
+        }
         assert!(!line.contains("123-456-7890"));
         assert!(!line.contains("333.444.5555"));
         assert!(!line.contains("999 888 7777"));
@@ -235,6 +270,9 @@ fn test_redact_phone_direct() {
 fn test_redact_phone() {
     let mut redactor = Redactor::new(false);
     let redacted_lines = redactor.redact(get_log_lines());
+
+    println!("\nPhone Redaction Results:");
+    println!("========================");
 
     let phone_numbers = vec![
         "(800) 555-0100",
@@ -248,8 +286,10 @@ fn test_redact_phone() {
     let mut redacted_phones = Vec::new();
 
     for line in redacted_lines {
-        println!("Line: {}", line);
         for phone in &phone_numbers {
+            if line.contains(phone) {
+                print_redaction_result("Phone", phone, &line);
+            }
             assert!(!line.contains(phone));
         }
 
@@ -260,13 +300,16 @@ fn test_redact_phone() {
         }
     }
 
-    println!("Redacted Phones: {:?}", redacted_phones);
+    println!("\nRedacted Phones: {:?}", redacted_phones);
 }
 
 #[test]
 fn test_redact_email() {
     let mut redactor = Redactor::new(false);
     let redacted_lines = redactor.redact(get_log_lines());
+
+    println!("\nEmail Redaction Results:");
+    println!("========================");
 
     let emails = vec![
         "john.doe@example.com",
@@ -279,8 +322,10 @@ fn test_redact_email() {
     let mut redacted_emails = Vec::new();
 
     for line in redacted_lines {
-        println!("Line: {}", line);
         for email in &emails {
+            if line.contains(email) {
+                print_redaction_result("Email", email, &line);
+            }
             assert!(!line.contains(email));
         }
 
@@ -291,13 +336,16 @@ fn test_redact_email() {
         }
     }
 
-    println!("Redacted Emails: {:?}", redacted_emails);
+    println!("\nRedacted Emails: {:?}", redacted_emails);
 }
 
 #[test]
 fn test_redact_url() {
     let mut redactor = Redactor::new(false);
     let redacted_lines = redactor.redact(get_log_lines());
+
+    println!("\nURL Redaction Results:");
+    println!("======================");
 
     let urls = vec![
         "https://www.example.com",
@@ -310,8 +358,10 @@ fn test_redact_url() {
     let mut redacted_urls = Vec::new();
 
     for line in redacted_lines {
-        println!("Line: {}", line);
         for url in &urls {
+            if line.contains(url) {
+                print_redaction_result("URL", url, &line);
+            }
             assert!(!line.contains(url));
         }
 
@@ -322,13 +372,16 @@ fn test_redact_url() {
         }
     }
 
-    println!("Redacted URLs: {:?}", redacted_urls);
+    println!("\nRedacted URLs: {:?}", redacted_urls);
 }
 
 #[test]
 fn test_redact_api_key() {
     let mut redactor = Redactor::new(false);
     let redacted_lines = redactor.redact(get_log_lines());
+
+    println!("\nAPI Key Redaction Results:");
+    println!("==========================");
 
     let api_keys = vec![
         "apikey=1234567890abcdef",
@@ -340,8 +393,10 @@ fn test_redact_api_key() {
     let mut redacted_api_keys = Vec::new();
 
     for line in redacted_lines {
-        println!("Line: {}", line);
         for api_key in &api_keys {
+            if line.contains(api_key) {
+                print_redaction_result("API Key", api_key, &line);
+            }
             assert!(!line.contains(api_key));
         }
 
@@ -352,7 +407,7 @@ fn test_redact_api_key() {
         }
     }
 
-    println!("Redacted API Keys: {:?}", redacted_api_keys);
+    println!("\nRedacted API Keys: {:?}", redacted_api_keys);
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use ipnet::{Ipv4Net, Ipv6Net};
+use ipnet::Ipv6Net;
 use lazy_static::lazy_static;
 use log::{info, warn};
 use lopdf::Document;
@@ -64,7 +64,7 @@ lazy_static! {
     static ref EMAIL_REGEX: Regex =
         Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
     static ref API_REGEX: Regex =
-        Regex::new(r"^(api|key|token|apikey|apitoken)=[A-Za-z0-9._~+/-]+=*$").unwrap();
+        Regex::new(r"(?i)(token|key|api|apikey|apitoken)=([^&\s]+)").unwrap();
 }
 
 impl Redactor {
@@ -110,7 +110,7 @@ impl Redactor {
         );
         patterns.insert(
             "ipv6".to_string(),
-            Regex::new(r"\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\b|(?::(?::[A-Fa-f0-9]{1,4}){1,6}|[A-Fa-f0-9]{1,4}:(?::[A-Fa-f0-9]{1,5}|(?:[A-Fa-f0-9]{1,4}:){2}(?::[A-Fa-f0-9]{1,4}){1,4}|(?:[A-Fa-f0-9]{1,4}:){3}(?::[A-Fa-f0-9]{1,4}){1,3}|(?:[A-Fa-f0-9]{1,4}:){4}(?::[A-Fa-f0-9]{1,4}){1,2}|(?:[A-Fa-f0-9]{1,4}:){5}:[A-Fa-f0-9]{1,4}|(?:[A-Fa-f0-9]{1,4}:){6}:)\b").unwrap(),
+            Regex::new(r"(?i)\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b").unwrap(),
         );
         patterns.insert(
             "phone".to_string(),
@@ -131,7 +131,8 @@ impl Redactor {
         );
         patterns.insert(
             "api".to_string(),
-            Regex::new(r"(?i)(token|key|api|apikey|apitoken)=[^&\s]*").unwrap(),
+            // Capture the exact key type to preserve it
+            Regex::new(r"(?i)(token|key|api|apikey|apitoken)=([^&\s]*)").unwrap(),
         );
 
         patterns
@@ -231,7 +232,12 @@ impl Redactor {
         let mut redacted_line = line.to_string();
 
         for cap in captures {
-            let value = cap.get(0).unwrap().as_str();
+            // Use the entire match for API keys to preserve the original format
+            let value = if pattern_type == "api" {
+                cap.get(0).unwrap().as_str()
+            } else {
+                cap.get(0).unwrap().as_str()
+            };
 
             let should_redact = if secrets_set.contains(value) {
                 true
@@ -451,31 +457,58 @@ impl Redactor {
         email
     }
 
-    fn generate_api_key(&mut self, prefix: &str) -> String {
-        let count = self.counter.entry(prefix.to_string()).or_insert(0);
-        println!(
-            "Generating API key with prefix: {}, count: {}",
-            prefix, count
-        );
-        let api_key = format!("{}_redacted_{}", prefix, count);
-        *self.counter.get_mut(prefix).unwrap() += 1;
-        api_key
+    fn generate_api_key(&mut self, value: &str) -> String {
+        // Extract the exact key type from the original value
+        let key_type = value.split('=').next().unwrap_or("token");
+        let count = {
+            let counter = self.counter.entry(key_type.to_string()).or_insert(0);
+            let current = *counter;
+            *counter += 1;
+            current
+        };
+        format!("{}=redacted_{}", key_type, count)
     }
 }
 
-fn validate_ipv4(ip: &str) -> bool {
-    ip.parse::<Ipv4Net>().is_ok()
+pub fn validate_ipv4(ip: &str) -> bool {
+    // Split the IP address into octets
+    let parts: Vec<&str> = ip.split('.').collect();
+
+    if parts.len() != 4 {
+        return false;
+    }
+
+    // Parse each octet, allowing for leading zeros
+    for part in parts {
+        // Remove leading zeros
+        let trimmed = part.trim_start_matches('0');
+        let octet = if trimmed.is_empty() {
+            0
+        } else {
+            match trimmed.parse::<u8>() {
+                Ok(num) => num,
+                Err(_) => return false,
+            }
+        };
+
+        // Verify the original representation
+        if octet.to_string() != trimmed && part != "0" {
+            return false;
+        }
+    }
+
+    true
 }
 
-fn validate_ipv6(ip: &str) -> bool {
+pub fn validate_ipv6(ip: &str) -> bool {
     ip.parse::<Ipv6Net>().is_ok()
 }
 
-fn validate_url(url_str: &str) -> bool {
+pub fn validate_url(url_str: &str) -> bool {
     url::Url::parse(url_str).is_ok()
 }
 
-fn validate_hostname(hostname: &str) -> bool {
+pub fn validate_hostname(hostname: &str) -> bool {
     let hostname_regex = Regex::new(r"^[A-Za-z0-9-]{1,63}$").unwrap();
     if hostname.len() > 253 {
         return false;
@@ -513,5 +546,8 @@ pub fn validate_email(email: &str) -> bool {
 }
 
 pub fn validate_api(api: &str) -> bool {
+    if api.ends_with('=') {
+        return false;
+    }
     API_REGEX.is_match(api)
 }
