@@ -1,0 +1,101 @@
+# Sample Log File
+
+# IPv4 Examples
+192.168.1.1
+10.0.0.255
+172.16.254.1
+192.168.0.1
+10.1.1.1
+192.0.2.0
+203.0.113.0
+255.255.255.255
+127.0.0.1
+8.8.8.8
+
+# IPv6 Examples
+2001:0db8:85a3:0000:0000:8a2e:0370:7334
+fe80::1ff:fe23:4567:890a
+::1
+2001:db8::ff00:42:8329
+2001:db8:85a3::8a2e:370:7334
+2001:db8:0:1234:0:567:8:1
+2001:0db8::0000:0000:0000:0000:0000
+::ffff:192.168.1.1
+2001:db8:0:0:0:0:2:1
+::a00:1
+
+# URL Examples
+https://www.example.com
+http://example.org
+https://example.net/path/to/resource?query=1&value=2
+http://localhost:8080/test
+https://subdomain.example.com/path
+https://example.co.uk
+http://192.168.1.1/login
+https://www.example.com/file?type=test#fragment
+ftp://example.com (invalid URL, for negative testing)
+https://www.example.com:80
+
+# Hostname Examples
+example.com
+subdomain.example.com
+my-hostname.org
+test.example.co.uk
+example123.net
+test-site.com
+sub.domain.example
+hostname-with-dash.com
+example-123.net
+a1234.com
+
+# Phone Number Examples
+123-456-7890
+123.456.7890
+123 456 7890
+(123) 456-7890
+123-456-7890
+456 789 1234
+(555) 555-5555
+987-654-3210
+(800) 123-4567
+555-121-1212
+
+# Mixed Examples
+www.three.com 10.15.101.11 1353280801 TEST 345
+www.one.com 10.14.101.11 1353280801 TEST 343
+www.three.com 1.10.11.71 1353280801 TEST 323
+www.one.com 10.15.11.61 1353280801 TEST 365
+www.two.com 10.10.11.51 1353290801 TEST 55
+www.two.com 10.20.13.11 1353290801 REST 435
+www.one.com 10.20.14.41 1353290801 REST 65
+www.two.com 10.10.11.14 1353290801 REST 345
+www.three.com 10.10.11.31 1354280801 REST 34
+www.one.com 10.10.13.144 1354280801 JSON 65
+www.two.com 10.50.11.141 1354280801 JSON 665
+www.three.com 120.10.11.11 1354280801 JSON 555
+www.two.com 10.144.11.11 1383280801 RAW 33
+www.one.com 10.103.141.141 1383280801 RAW 315
+
+# Email Examples
+test@example.com
+user.name123@example.co.uk
+john_doe@example.org
+info@my-domain.com
+test.email@subdomain.example.com
+username@domain.edu
+alice1234@example.net
+contact@website.com
+bob.smith@company.biz
+admin@service.org
+
+# API Key Examples
+token=123456789abcdef
+key=abcdef1234567890
+apikey=abcdefgh12345678
+apitoken=0987654321fedcba
+token=secretapikey123
+api=9876543210key
+key=tokenvalue5678
+apikey=1112131415key
+apitoken=abcdefg123456
+api=xyz0987
