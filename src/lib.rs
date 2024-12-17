@@ -132,12 +132,13 @@ impl Redactor {
         );
         patterns.insert(
             "url".to_string(),
-            Regex::new(r"https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+[^\s]*").unwrap(),
+            // Updated to be more specific and avoid matching parts of already redacted URLs
+            Regex::new(r"https?://(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?:/[^\s]*)?").unwrap(),
         );
         patterns.insert(
             "hostname".to_string(),
-            Regex::new(r"(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}")
-                .unwrap(),
+            // Updated to be more specific and avoid matching parts of already redacted hostnames
+            Regex::new(r"(?:^|[^.])[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}").unwrap(),
         );
         patterns.insert(
             "api".to_string(),
@@ -214,6 +215,11 @@ impl Redactor {
     }
 
     fn redact_pattern(&mut self, line: &str, pattern_type: &str) -> String {
+        // Add check for already redacted content
+        if line.contains("redacted-") {
+            return line.to_string();
+        }
+
         println!("Redacting pattern type: {}", pattern_type); // Debug line
         let pattern = &self.patterns[pattern_type];
         let captures: Vec<_> = pattern.captures_iter(line).collect();
@@ -280,36 +286,59 @@ impl Redactor {
         info!("Redacting file: {}", file);
         let path = Path::new(file);
         if path.exists() {
-            let lines: Vec<String> = io::BufReader::new(File::open(file).unwrap())
-                .lines()
-                .map(|line| line.unwrap())
-                .collect();
+            let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
 
-            let redacted_lines = self.redact(lines);
-
-            let extension = path
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .unwrap_or("txt");
-            let file_stem = path
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or("file");
-
-            let redacted_file_name = format!("{}-redacted.{}", file_stem, extension);
-            let mut output_file = File::create(&redacted_file_name).unwrap();
-            for line in redacted_lines {
-                writeln!(output_file, "{}", line).unwrap();
+            match extension {
+                "zip" => self.redact_zip(file),
+                "tar" => {
+                    if let Err(e) = self.redact_tar(file) {
+                        warn!("Failed to redact tar file: {}", e);
+                    }
+                }
+                "gz" => {
+                    if file.ends_with(".tar.gz") || file.ends_with(".tgz") {
+                        if let Err(e) = self.redact_tar_gz(file) {
+                            warn!("Failed to redact tar.gz file: {}", e);
+                        }
+                    } else {
+                        self.redact_plain_file(file);
+                    }
+                }
+                "pdf" => {
+                    if let Err(e) = self.redact_pdf(file) {
+                        warn!("Failed to redact pdf file: {}", e);
+                    }
+                }
+                _ => self.redact_plain_file(file),
             }
-
-            if let Err(e) = self.save_mappings(&format!("{}-mappings.json", file_stem)) {
-                warn!("Failed to save mappings: {}", e);
-            }
-            info!("File redaction complete");
-            println!("Redacted file saved as {}", redacted_file_name);
         } else {
             warn!("File not found: {}", file);
         }
+    }
+
+    fn redact_plain_file(&mut self, file: &str) {
+        let path = Path::new(file);
+        let lines: Vec<String> = io::BufReader::new(File::open(file).unwrap())
+            .lines()
+            .map(|line| line.unwrap())
+            .collect();
+
+        let redacted_lines = self.redact(lines);
+
+        let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("txt");
+        let file_stem = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("file");
+
+        let redacted_file_name = format!("{}-redacted.{}", file_stem, extension);
+        let mut output_file = File::create(&redacted_file_name).unwrap();
+        for line in redacted_lines {
+            writeln!(output_file, "{}", line).unwrap();
+        }
+
+        if let Err(e) = self.save_mappings(&format!("{}-mappings.json", file_stem)) {
+            warn!("Failed to save mappings: {}", e);
+        }
+        info!("File redaction complete");
+        println!("Redacted file saved as {}", redacted_file_name);
     }
 
     pub fn redact_directory(&mut self, dir: &str) {
@@ -334,21 +363,32 @@ impl Redactor {
         let file = File::open(zip_file).unwrap();
         let mut archive = ZipArchive::new(file).unwrap();
 
+        // Create output directory
+        let output_dir = format!("{}-redacted", zip_file.trim_end_matches(".zip"));
+        fs::create_dir_all(&output_dir).unwrap();
+
         for i in 0..archive.len() {
             let mut file = archive.by_index(i).unwrap();
-            if file.is_file() {
-                let mut contents = Vec::new();
-                io::copy(&mut file, &mut contents).unwrap();
-                let contents = String::from_utf8(contents).unwrap();
-                let redacted_contents = self.redact(vec![contents]);
-                let redacted_file_name = format!("{}-redacted", file.name());
-                let mut output_file = File::create(&redacted_file_name).unwrap();
-                for line in redacted_contents {
-                    writeln!(output_file, "{}", line).unwrap();
+            let outpath = Path::new(&output_dir).join(file.name());
+
+            if file.is_dir() {
+                fs::create_dir_all(&outpath).unwrap();
+            } else {
+                if let Some(p) = outpath.parent() {
+                    if !p.exists() {
+                        fs::create_dir_all(&p).unwrap();
+                    }
                 }
-                println!("Redacted file saved as {}", redacted_file_name);
+                let mut outfile = File::create(&outpath).unwrap();
+                io::copy(&mut file, &mut outfile).unwrap();
             }
         }
+
+        info!("Extracted ZIP archive to: {}", output_dir);
+
+        // Then process each file in the extracted directory
+        self.redact_directory(&output_dir);
+
         info!("ZIP archive redaction complete");
     }
 
@@ -441,17 +481,15 @@ impl Redactor {
 
     fn generate_hostname(&mut self) -> String {
         let count = self.counter.entry("hostname".to_string()).or_insert(0);
-        println!("Generating hostname with count: {}", count);
-        let hostname = format!("redacted_host{}.example.com", count);
-        *self.counter.get_mut("hostname").unwrap() += 1;
+        let hostname = format!("redacted-host-{:03}.example.com", count);
+        *count += 1;
         hostname
     }
 
     fn generate_url(&mut self) -> String {
         let count = self.counter.entry("url".to_string()).or_insert(0);
-        println!("Generating URL with count: {}", count);
-        let url = format!("https://www.example{}.com", count);
-        *self.counter.get_mut("url").unwrap() += 1;
+        let url = format!("https://redacted-url-{:03}.example.com", count);
+        *count += 1;
         url
     }
 
@@ -572,7 +610,7 @@ pub fn validate_hostname(hostname: &str) -> bool {
     labels.iter().all(|label| hostname_regex.is_match(label))
 }
 
-// hostname-validator: https://docs.rs/crate/hostname-validator/latest
+// hostname-validator: https://docs.rs/crate/hostname-validator/latest [orginal failed security audit]
 // REFS: https://tools.ietf.org/html/rfc1123
 // A hostname is valid if the following condition are true:
 pub fn is_valid_hostname(hostname: &str) -> bool {
