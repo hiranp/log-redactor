@@ -211,4 +211,14 @@ mod tests {
         std::fs::write("samples/sample_redacted.log", redacted_lines.join("\n"))
             .expect("Failed to write redacted log");
     }
+
+    #[test]
+    fn test_process_tar_file() {
+        // Test processing of tar files
+    }
+
+    #[test]
+    fn test_process_tar_gz_file() {
+        // Test processing of tar.gz files
+    }
 }

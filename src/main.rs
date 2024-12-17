@@ -1,8 +1,12 @@
 use clap::{Arg, Command};
+use clap::builder::PossibleValuesParser;
 use log::info;
 use log_redactor::Redactor;
 use std::env;
 use std::path::{Path, PathBuf};
+use tar::Archive;
+use flate2::read::GzDecoder;
+use std::fs::File;
 
 fn main() {
     let matches = Command::new("Redactor")
@@ -19,7 +23,9 @@ fn main() {
             Arg::new("interactive")
                 .short('i')
                 .long("interactive")
-                .help("Run in interactive mode"),
+                .help("Run in interactive mode (enter 'yes' or 'no')")
+                .value_name("BOOLEAN")
+                .value_parser(PossibleValuesParser::new(&["yes", "no"])),
         )
         .arg(
             Arg::new("secrets")
@@ -38,7 +44,7 @@ fn main() {
         .get_matches();
 
     let path = matches.get_one::<String>("path").unwrap();
-    let interactive = matches.contains_id("interactive");
+    let interactive = matches.get_one::<String>("interactive").map(|s| s == "yes").unwrap_or(false);
 
     let current_dir = env::current_dir().unwrap();
     let default_secrets_file = current_dir.join("secrets.csv");
@@ -68,6 +74,15 @@ fn main() {
             if let Err(e) = redactor.redact_pdf(path.to_str().unwrap()) {
                 info!("Failed to redact PDF: {}", e);
             }
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("tar") {
+            if let Err(e) = redactor.redact_tar(path.to_str().unwrap()) {
+                info!("Failed to redact TAR file: {}", e);
+            }
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("tar.gz") 
+            || path.extension().and_then(|ext| ext.to_str()) == Some("tgz") {
+            if let Err(e) = redactor.redact_tar_gz(path.to_str().unwrap()) {
+                info!("Failed to redact TAR.GZ file: {}", e);
+            }
         } else {
             redactor.redact_file(path.to_str().unwrap());
         }
@@ -79,3 +94,4 @@ fn main() {
 
     info!("Redaction process completed");
 }
+

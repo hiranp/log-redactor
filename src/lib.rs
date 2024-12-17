@@ -13,6 +13,8 @@ use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::path::Path;
 use zip::read::ZipArchive;
+use flate2::read::GzDecoder;
+use tar::Archive;
 pub mod redaction_utils;
 
 #[derive(Serialize, Deserialize)]
@@ -476,6 +478,81 @@ impl Redactor {
         let redacted = format!("{}=redacted_{}", key_type, count);
         debug!("Generated redacted key: {}", redacted);
         redacted
+    }
+
+    pub fn redact_tar(&mut self, tar_file: &str) -> Result<(), std::io::Error> {
+        info!("Redacting TAR archive: {}", tar_file);
+        let file = File::open(tar_file)?;
+        let mut archive = Archive::new(file);
+        
+        // Create output directory
+        let output_dir = format!("{}-redacted", tar_file);
+        fs::create_dir_all(&output_dir)?;
+
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            let path = entry.path()?;
+            
+            if entry.header().entry_type().is_file() {
+                // Read file content
+                let mut content = String::new();
+                entry.read_to_string(&mut content)?;
+
+                // Redact content
+                let redacted_content = self.redact(vec![content]).join("\n");
+
+                // Create output path
+                let output_path = Path::new(&output_dir).join(path);
+                if let Some(parent) = output_path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+
+                // Write redacted content
+                fs::write(&output_path, redacted_content)?;
+                info!("Redacted file saved as {:?}", output_path);
+            }
+        }
+
+        info!("TAR archive redaction complete");
+        Ok(())
+    }
+
+    pub fn redact_tar_gz(&mut self, tar_gz_file: &str) -> Result<(), std::io::Error> {
+        info!("Redacting TAR.GZ archive: {}", tar_gz_file);
+        let file = File::open(tar_gz_file)?;
+        let decompressor = GzDecoder::new(file);
+        let mut archive = Archive::new(decompressor);
+
+        // Create output directory
+        let output_dir = format!("{}-redacted", tar_gz_file);
+        fs::create_dir_all(&output_dir)?;
+
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            let path = entry.path()?;
+            
+            if entry.header().entry_type().is_file() {
+                // Read file content
+                let mut content = String::new();
+                entry.read_to_string(&mut content)?;
+
+                // Redact content
+                let redacted_content = self.redact(vec![content]).join("\n");
+
+                // Create output path
+                let output_path = Path::new(&output_dir).join(path);
+                if let Some(parent) = output_path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+
+                // Write redacted content
+                fs::write(&output_path, redacted_content)?;
+                info!("Redacted file saved as {:?}", output_path);
+            }
+        }
+
+        info!("TAR.GZ archive redaction complete");
+        Ok(())
     }
 }
 

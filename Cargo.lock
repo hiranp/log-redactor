@@ -730,6 +730,7 @@ dependencies = [
  "clap",
  "email_address",
  "env_logger",
+ "flate2",
  "ipnet",
  "lazy_static",
  "log",
