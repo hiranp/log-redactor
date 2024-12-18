@@ -14,11 +14,12 @@ fi
 
 # Build for macOS
 echo "Building for macOS..."
-cross build --target x86_64-apple-darwin --release
+cargo build --target x86_64-apple-darwin --release
 
 # Build for Linux
 echo "Building for Linux..."
-cross build --release --target x86_64-unknown-linux-gnu:centos
+# cross build --release --target x86_64-unknown-linux-gnu
+cross build --release --target x86_64-unknown-linux-musl
 # RUSTFLAGS='-C target-feature=+crt-static' cross build --release --target x86_64-unknown-linux-gnu
 # OPENSSL_STATIC=1 RUSTFLAGS='-C target-feature=+crt-static' cargo build --target x86_64-unknown-linux-gnu --release
 

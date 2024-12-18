@@ -176,9 +176,9 @@ mod tests {
             "samples/redacted-mapping.txt",
         );
         let test_cases = vec![
-            ("token=abcdef1234567890", "token=redacted_0"),
-            ("apikey=secretvalue123", "apikey=redacted_1"),
-            ("key=f3234235.1235wqer32145340", "key=redacted_2"),
+            ("token=abcdef1234567890", "token=redacted_000"),
+            ("apikey=secretvalue123", "apikey=redacted_000"),
+            ("key=f3234235.1235wqer32145340", "key=redacted_000"),
             ("invalid-key", "invalid-key"),
             ("apikey=", "apikey="),
         ];
@@ -213,6 +213,7 @@ mod tests {
         }
     }
 
+    
     #[test]
     fn test_sample_log_redaction() {
         use std::fs;

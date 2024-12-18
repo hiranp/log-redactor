@@ -7,15 +7,15 @@ use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Write};
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tar::Archive;
 use time::OffsetDateTime;
 use zip::read::ZipArchive;
+use globset::{Glob, GlobSet, GlobSetBuilder};
 
 pub mod redaction_utils;
 
@@ -33,6 +33,8 @@ struct Ignore {
 pub struct RedactorConfig {
     secrets: Option<HashMap<String, Vec<String>>>,
     ignores: Option<HashMap<String, Vec<String>>>,
+    secret_patterns: HashMap<String, GlobSet>,
+    ignore_patterns: HashMap<String, GlobSet>,
 }
 
 impl RedactorConfig {
@@ -53,7 +55,44 @@ impl RedactorConfig {
             None
         };
 
-        Ok(RedactorConfig { secrets, ignores })
+        let mut config = RedactorConfig {
+            secrets,
+            ignores,
+            secret_patterns: HashMap::new(),
+            ignore_patterns: HashMap::new(),
+        };
+
+        // Build glob patterns for secrets
+        if let Some(ref secrets) = config.secrets {
+            for (key, patterns) in secrets {
+                let mut builder = GlobSetBuilder::new();
+                for pattern in patterns {
+                    if let Ok(glob) = Glob::new(pattern) {
+                        builder.add(glob);
+                    }
+                }
+                if let Ok(set) = builder.build() {
+                    config.secret_patterns.insert(key.clone(), set);
+                }
+            }
+        }
+
+        // Build glob patterns for ignores
+        if let Some(ref ignores) = config.ignores {
+            for (key, patterns) in ignores {
+                let mut builder = GlobSetBuilder::new();
+                for pattern in patterns {
+                    if let Ok(glob) = Glob::new(pattern) {
+                        builder.add(glob);
+                    }
+                }
+                if let Ok(set) = builder.build() {
+                    config.ignore_patterns.insert(key.clone(), set);
+                }
+            }
+        }
+
+        Ok(config)
     }
 }
 
@@ -234,7 +273,7 @@ impl Redactor {
                 self.save_to_file("secrets.csv", secret_type, value);
                 true
             }
-            "never" => {
+            "never" | "r" => {
                 self.save_to_file("ignore.csv", secret_type, value);
                 false
             }
@@ -274,25 +313,7 @@ impl Redactor {
             pattern_type,
             captures.len()
         );
-
-        let ignore_set: HashSet<String> = self
-            .config
-            .ignores
-            .as_ref()
-            .and_then(|ignores| ignores.get(pattern_type).cloned())
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-
-        let secrets_set: HashSet<String> = self
-            .config
-            .secrets
-            .as_ref()
-            .and_then(|secrets| secrets.get(pattern_type).cloned())
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-
+        
         let validator_fn = self.validators[pattern_type];
         let interactive = self.interactive;
 
@@ -312,11 +333,19 @@ impl Redactor {
                 continue;
             }
 
-            let should_redact = if secrets_set.contains(value) {
+            // First check if it matches any secret patterns
+            let should_redact = if self.config.secret_patterns
+                .get(pattern_type)
+                .map_or(false, |patterns| patterns.is_match(value))
+            {
                 true
-            } else if ignore_set.contains(value) {
+            } else if self.config.ignore_patterns
+                .get(pattern_type)
+                .map_or(false, |patterns| patterns.is_match(value))
+            {
                 false
             } else {
+                // Only validate and ask user if no pattern matches
                 validator_fn(value) && (!interactive || self.ask_user(value, key_type))
             };
 
@@ -464,17 +493,27 @@ impl Redactor {
     pub fn redact_directory(&mut self, dir: &str) {
         info!("Redacting directory: {}", dir);
         let path = Path::new(dir);
-        if path.is_dir() {
-            for entry in fs::read_dir(path).unwrap() {
-                let entry = entry.unwrap();
-                let path = entry.path();
-                if path.is_file() {
-                    self.redact_file(path.to_str().unwrap());
-                }
-            }
-            info!("Directory redaction complete");
-        } else {
+        
+        if !path.is_dir() {
             warn!("Directory not found: {}", dir);
+            return;
+        }
+
+        // Collect all files recursively
+        match collect_files(path) {
+            Ok(files) => {
+                info!("Found {} files to process", files.len());
+                for file_path in files {
+                    info!("Processing file: {}", file_path.display());
+                    if let Some(path_str) = file_path.to_str() {
+                        self.redact_file(path_str);
+                    }
+                }
+                info!("Directory redaction complete");
+            }
+            Err(e) => {
+                warn!("Error walking directory {}: {}", dir, e);
+            }
         }
     }
 
@@ -681,6 +720,30 @@ impl Redactor {
         info!("TAR.GZ archive redaction complete");
         Ok(())
     }
+}
+
+// Helper function to collect all files recursively
+fn collect_files(dir: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    
+    if dir.is_dir() {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            
+            if path.is_dir() {
+                // Recursively collect files from subdirectories
+                files.extend(collect_files(&path)?);
+            } else if path.is_file() {
+                // Skip already redacted files
+                if !path.to_string_lossy().contains("-redacted") {
+                    files.push(path);
+                }
+            }
+        }
+    }
+    
+    Ok(files)
 }
 
 pub fn validate_ipv4(ip: &str) -> bool {

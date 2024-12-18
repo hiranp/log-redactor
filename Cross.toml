@@ -2,9 +2,12 @@
 build-std = false # do not build the std library. has precedence over xargo
 xargo = true      # enable the use of xargo by default
 
-[build.zig]
-enable = false   # enable or disable the use of zig cc
-version = "2.17" # the glibc version to use
+# [build.zig]
+# enable = false   # enable or disable the use of zig cc
+# version = "2.17" # the glibc version to use
 
 [target.x86_64-unknown-linux-gnu]
 image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:main-centos"
+
+[target.x86_64-unknown-linux-musl]
+image = "ghcr.io/cross-rs/x86_64-unknown-linux-musl:edge"

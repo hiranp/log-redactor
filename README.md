@@ -38,6 +38,7 @@ The underlying redaction logic is implemented in both Python and Rust. The Pytho
 - Redaction of sensitive data from a variety of file types, including PDFs
 - Interactive mode to confirm redaction of sensitive data
 - Support for custom patterns in `secrets.csv` and `ignore.csv`
+- Support simple **glob patterns** in `secrets.csv` and `ignore.csv`
 - Support for redacting data from tar, tar.gz, tgz, zip, and PDF files
 
 ## Installation
@@ -163,6 +164,28 @@ The script reads from `secrets.csv` and `ignore.csv` to manage sensitive informa
 
 This file contains patterns of sensitive information that should always be redacted. Each line in the file specifies a type of sensitive information (e.g., `ipv4`, `email`, etc.) and the corresponding value to be redacted.
 
+The secrets file can contain glob patterns like:
+
+```json
+{
+    "hostname": ["special*", "*example.com", "test-*.local"],
+    "email": ["*@internal.com", "admin*@*"]
+}
+```
+
+This implementation allows for simple wildcard patterns:
+
+- `*` matches any number of characters
+- `?` matches exactly one character
+- `[abc]` matches any character in the set
+- `[!abc]` matches any character not in the set
+
+Examples:
+
+- `special*` matches anything starting with "special"
+- `*.example.com` matches any subdomain of example.com
+- `test-*.local` matches any test domain in .local
+
 Example:
 
 ```csv
@@ -170,6 +193,9 @@ ipv4,192.168.1.1
 email,john.doe@example.com
 phone,123-456-7890
 hostname,example.com
+hostname,"special*"
+hostname,"test-*.local"
+email,"*@internal.com"
 url,https://www.example.com
 api,apikey=1234567890abcdef
 ```
@@ -186,6 +212,7 @@ email,admin@example.com
 phone,555-555-5555
 hostname,localhost
 url,http://localhost
+email,"junk*@*"
 api,apikey=ignorethisapikey
 ```
 
