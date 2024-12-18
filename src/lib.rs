@@ -1,5 +1,4 @@
 use flate2::read::GzDecoder;
-use infer;
 use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use lopdf::Document;
@@ -70,8 +69,7 @@ pub struct Redactor {
 
 lazy_static! {
     static ref PHONE_REGEX: Regex =
-        Regex::new(r"^\s*(?:\+?1[-. ]?)?\s*\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})\s*$")
-            .unwrap();
+        Regex::new(r"\b(?:\+?1[-. ]?)?\s*\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4}\b").unwrap();
     static ref EMAIL_REGEX: Regex =
         Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
     static ref API_REGEX: Regex = Regex::new(
@@ -308,50 +306,47 @@ impl Redactor {
         // Use infer to detect file type
         let kind = infer::get(&content);
 
-        match kind {
-            Some(k) => {
-                match k.mime_type() {
-                    // Handle archives
-                    mime if mime == "application/zip" => {
-                        info!("Detected ZIP archive");
-                        if let Err(e) = self.redact_zip(file) {
-                            warn!("Failed to process ZIP file: {}", e);
-                        }
-                        return;
+        if let Some(k) = kind {
+            match k.mime_type() {
+                // Handle archives
+                "application/zip" => {
+                    info!("Detected ZIP archive");
+                    if let Err(e) = self.redact_zip(file) {
+                        warn!("Failed to process ZIP file: {}", e);
                     }
-                    mime if mime == "application/x-tar" => {
-                        info!("Detected TAR archive");
-                        if let Err(e) = self.redact_tar(file) {
-                            warn!("Failed to process TAR file: {}", e);
-                        }
-                        return;
-                    }
-                    mime if mime == "application/gzip" => {
-                        info!("Detected GZIP archive");
-                        if let Err(e) = self.redact_tar_gz(file) {
-                            warn!("Failed to process GZIP file: {}", e);
-                        }
-                        return;
-                    }
-                    mime if mime == "application/x-bzip2" => {
-                        info!("Detected BZIP2 archive");
-                        if let Err(e) = self.redact_bzip2(file) {
-                            warn!("Failed to process BZIP2 file: {}", e);
-                        }
-                        return;
-                    }
-                    // Handle other binary types
-                    mime if mime.starts_with("image/")
-                        || mime.starts_with("video/")
-                        || mime.starts_with("audio/") =>
-                    {
-                        warn!("Unsupported binary file type: {}", mime);
-                        return;
-                    }
-                    _ => (), // Continue processing other types
+                    return;
                 }
+                "application/x-tar" => {
+                    info!("Detected TAR archive");
+                    if let Err(e) = self.redact_tar(file) {
+                        warn!("Failed to process TAR file: {}", e);
+                    }
+                    return;
+                }
+                "application/gzip" => {
+                    info!("Detected GZIP archive");
+                    if let Err(e) = self.redact_tar_gz(file) {
+                        warn!("Failed to process GZIP file: {}", e);
+                    }
+                    return;
+                }
+                "application/x-bzip2" => {
+                    info!("Detected BZIP2 archive");
+                    if let Err(e) = self.redact_bzip2(file) {
+                        warn!("Failed to process BZIP2 file: {}", e);
+                    }
+                    return;
+                }
+                // Handle other binary types
+                mime if mime.starts_with("image/")
+                    || mime.starts_with("video/")
+                    || mime.starts_with("audio/") =>
+                {
+                    warn!("Unsupported binary file type: {}", mime);
+                    return;
+                }
+                _ => (), // Continue processing other types
             }
-            None => (), // No detected type, assume it's text
         }
 
         // Handle all text-based files

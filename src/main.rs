@@ -70,43 +70,42 @@ fn main() {
 
     let path = Path::new(path);
     if path.is_file() {
-        let file_type = match std::fs::read(path) {
-            Ok(content) => match infer::get(&content) {
-                Some(kind) => kind,
-                None => {
+        match std::fs::read(path) {
+            Ok(content) => {
+                if let Some(kind) = infer::get(&content) {
+                    match kind.mime_type() {
+                        "application/zip" => {
+                            if let Err(e) = redactor.redact_zip(path.to_str().unwrap()) {
+                                info!("Failed to redact ZIP file: {}", e);
+                            }
+                        }
+                        "application/pdf" => {
+                            if let Err(e) = redactor.redact_pdf(path.to_str().unwrap()) {
+                                info!("Failed to redact PDF: {}", e);
+                            }
+                        }
+                        "application/x-tar" => {
+                            if let Err(e) = redactor.redact_tar(path.to_str().unwrap()) {
+                                info!("Failed to redact TAR file: {}", e);
+                            }
+                        }
+                        "application/gzip" => {
+                            if let Err(e) = redactor.redact_tar_gz(path.to_str().unwrap()) {
+                                info!("Failed to redact TAR.GZ file: {}", e);
+                            }
+                        }
+                        _ => redactor.redact_file(path.to_str().unwrap()),
+                    }
+                } else {
                     // Assume it's a regular text file if type cannot be determined
                     redactor.redact_file(path.to_str().unwrap());
                     return;
                 }
-            },
+            }
             Err(e) => {
                 eprintln!("Error reading file: {}", e);
                 return;
             }
-        };
-
-        match file_type.mime_type() {
-            "application/zip" => {
-                if let Err(e) = redactor.redact_zip(path.to_str().unwrap()) {
-                    info!("Failed to redact ZIP file: {}", e);
-                }
-            }
-            "application/pdf" => {
-                if let Err(e) = redactor.redact_pdf(path.to_str().unwrap()) {
-                    info!("Failed to redact PDF: {}", e);
-                }
-            }
-            "application/x-tar" => {
-                if let Err(e) = redactor.redact_tar(path.to_str().unwrap()) {
-                    info!("Failed to redact TAR file: {}", e);
-                }
-            }
-            "application/gzip" => {
-                if let Err(e) = redactor.redact_tar_gz(path.to_str().unwrap()) {
-                    info!("Failed to redact TAR.GZ file: {}", e);
-                }
-            }
-            _ => redactor.redact_file(path.to_str().unwrap()),
         }
     } else if path.is_dir() {
         redactor.redact_directory(path.to_str().unwrap());

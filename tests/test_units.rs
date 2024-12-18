@@ -3,57 +3,63 @@ use log_redactor::{
     validate_url, Redactor,
 };
 
+/// NOTE: The tests in this file are meant to be run with `cargo test -- --nocapture`
+/// This will allow the tests to print output to the console.
+
+// Validation Tests
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // Common helper function for printing test results
-    fn print_test_result(
-        test_name: &str,
-        input: &str,
-        is_valid: bool,
-        expected: bool,
-        redacted: Option<String>,
-    ) {
-        println!("----------------------------------------");
-        println!("Test: {} ", test_name);
-        println!("Input: {}", input);
-        println!("Result: {} (Expected: {})", is_valid, expected);
-        if let Some(red) = redacted {
-            println!("Redacted: {}", red);
-        }
-        println!("----------------------------------------");
-    }
-
-    // Common function to run validation tests
+    // Helper function for validation tests with printing
     fn run_validation_test(
         test_name: &str,
         test_cases: Vec<(&str, bool)>,
         validator: fn(&str) -> bool,
-        should_redact: bool,
     ) {
-        println!("\nRunning {} Validation Tests:", test_name);
+        println!("\nRunning {} Validation Tests", test_name);
         println!("{}=", "=".repeat(test_name.len() + 21));
-
-        let mut redactor = if should_redact {
-            Some(Redactor::new(false, "secrets.csv", "ignore.csv"))
-        } else {
-            None
-        };
 
         for (input, expected) in test_cases {
             let is_valid = validator(input);
-            let redacted = if is_valid && should_redact {
-                let redacted_lines = redactor.as_mut().unwrap().redact(vec![input.to_string()]);
-                Some(redacted_lines[0].to_string())
-            } else {
-                None
-            };
-            print_test_result(test_name, input, is_valid, expected, redacted);
-            assert_eq!(is_valid, expected, "Failed for {}: {}", test_name, input);
+
+            // Print input and validation result
+            println!("Input    : {}", input);
+            println!("Is Valid : {}", is_valid);
+            println!("Expected : {}\n", expected);
+
+            // Assertion
+            assert_eq!(
+                is_valid, expected,
+                "Validation failed for input '{}': expected {}, got {}",
+                input, expected, is_valid
+            );
         }
     }
 
+    // Helper function for redaction tests with printing
+    fn run_redaction_test(test_name: &str, test_cases: Vec<(&str, &str)>, redactor: &mut Redactor) {
+        println!("\nRunning {} Redaction Tests", test_name);
+        println!("{}=", "=".repeat(test_name.len() + 20));
+
+        for (input, expected) in test_cases {
+            let redacted_lines = redactor.redact(vec![input.to_string()]);
+            let redacted = &redacted_lines[0];
+
+            // Print input and redacted output for comparison
+            println!("Input    : {}", input);
+            println!("Redacted : {}\n", redacted);
+
+            // Assertion
+            assert_eq!(
+                redacted, expected,
+                "Redaction failed for input '{}'. Expected '{}', got '{}'",
+                input, expected, redacted
+            );
+        }
+    }
+
+    // Validation Tests
     #[test]
     fn test_validate_phone() {
         let test_cases = vec![
@@ -64,7 +70,7 @@ mod tests {
             ("123-456-789", false),
             ("123-456-78901", false),
         ];
-        run_validation_test("Phone", test_cases, validate_phone, true);
+        run_validation_test("Phone", test_cases, validate_phone);
     }
 
     #[test]
@@ -81,34 +87,7 @@ mod tests {
             ("invalid.email@", false),
             ("@invalid.com", false),
         ];
-        run_validation_test("Email", test_cases, validate_email, true);
-    }
-
-    #[test]
-    fn test_validate_api() {
-        let test_cases = vec![
-            ("apikey=abc123def456", true),
-            ("token=xyz789", true),
-            ("key=f32342351235wqer32145340", true),
-            ("invalid-key", false),
-            ("apikey=", false),
-        ];
-        run_validation_test("API Key", test_cases, validate_api, true);
-    }
-
-    #[test]
-    fn test_api_key_redaction() {
-        let mut redactor = Redactor::new(false, "secrets.csv", "ignore.csv");
-        let test_cases = vec![
-            ("key=f32342351235wqer32145340", "key=redacted_0"),
-            ("token=abcdef1234567890", "token=redacted_0"),
-            ("apikey=secretvalue123", "apikey=redacted_0"),
-        ];
-
-        for (input, expected) in test_cases {
-            let result = redactor.redact(vec![input.to_string()]);
-            assert_eq!(result[0], expected, "Failed on input: {}", input);
-        }
+        run_validation_test("Email", test_cases, validate_email);
     }
 
     #[test]
@@ -123,7 +102,7 @@ mod tests {
             ("0.0.0.0", true),
             ("00.00.00.00", false),
         ];
-        run_validation_test("IPv4", test_cases, validate_ipv4, true);
+        run_validation_test("IPv4", test_cases, validate_ipv4);
     }
 
     #[test]
@@ -137,7 +116,7 @@ mod tests {
             ("www.example.com/path", false),
             ("www.example.com:8080", false),
         ];
-        run_validation_test("Hostname", test_cases, validate_hostname, true);
+        run_validation_test("Hostname", test_cases, validate_hostname);
     }
 
     #[test]
@@ -154,7 +133,7 @@ mod tests {
             ("http://www.example.com:8080/path?query=1", true),
             ("http://www.example.com:8080/path?query=1#fragment", true),
         ];
-        run_validation_test("URL", test_cases, validate_url, true);
+        run_validation_test("URL", test_cases, validate_url);
     }
 
     #[test]
@@ -172,7 +151,46 @@ mod tests {
             ("2001:db8:85a3:0:0:8a2e:370g:7334", false), // Invalid hex digit
             ("not:a:valid:ipv6:address", false),
         ];
-        run_validation_test("IPv6", test_cases, validate_ipv6, true);
+        run_validation_test("IPv6", test_cases, validate_ipv6);
+    }
+
+    #[test]
+    fn test_validate_api_key() {
+        let test_cases = vec![
+            ("token=abcdef1234567890", true),
+            ("apikey=secretvalue123", true),
+            ("key=f3234235.1235wqer32145340", true),
+            ("invalid-key", false),
+            ("apikey=", true),
+        ];
+        run_validation_test("API Key", test_cases, validate_api);
+    }
+
+    // Redaction Tests ========================================
+    #[test]
+    fn test_api_key_redaction() {
+        let mut redactor = Redactor::new(false, "samples/secrets.csv", "samples/ignore.csv");
+        let test_cases = vec![
+            ("token=abcdef1234567890", "token=redacted_0"),
+            ("apikey=secretvalue123", "apikey=redacted_0"),
+            ("key=f3234235.1235wqer32145340", "key=redacted_0"),
+            ("invalid-key", "invalid-key"),
+            ("apikey=", "apikey="),
+        ];
+        run_redaction_test("API Key", test_cases, &mut redactor);
+    }
+
+    #[test]
+    fn test_phone_redaction() {
+        let mut redactor = Redactor::new(false, "samples/secrets.csv", "samples/ignore.csv");
+        let test_cases = vec![
+            ("123-456-7890", "800-555-0000"),
+            ("(123) 456-7890", "800-555-0001"),
+            ("123.456.7890", "800-555-0002"),
+            ("123 456 7890", "800-555-0003"),
+            // Add more test cases...
+        ];
+        run_redaction_test("Phone", test_cases, &mut redactor);
     }
 
     #[test]

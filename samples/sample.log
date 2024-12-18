@@ -49,16 +49,21 @@ example-123.net
 a1234.com
 
 # Phone Number Examples
-123-456-7890
+123-456-7890 ( +1 123 not valid area code in North America
 123.456.7890
 123 456 7890
-(123) 456-7890
+(123) 456-7890 (invalid phone number, for negative testing)
+201 456 7890
+917-456-7890
+911 911 9111
 123-456-7890
 456 789 1234
 (555) 555-5555
 987-654-3210
 (800) 123-4567
 555-121-1212
++1-800-123-4567
++44 800 123 4567
 
 # Mixed Examples
 www.three.com 10.15.101.11 1353280801 TEST 345
