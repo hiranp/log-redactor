@@ -31,14 +31,14 @@ fn main() {
             Arg::new("secrets")
                 .short('s')
                 .long("secrets")
-                .help("Path to the secrets file")
+                .help("Path to the secrets file (JSON format)")
                 .value_name("FILE"),
         )
         .arg(
             Arg::new("ignores")
                 .short('g')
                 .long("ignores")
-                .help("Path to the ignores file")
+                .help("Path to the ignores file (JSON format)")
                 .value_name("FILE"),
         )
         .get_matches();
@@ -50,8 +50,8 @@ fn main() {
         .unwrap_or(false);
 
     let current_dir = env::current_dir().unwrap();
-    let default_secrets_file = current_dir.join("secrets.csv");
-    let default_ignores_file = current_dir.join("ignore.csv");
+    let default_secrets_file = current_dir.join("secrets.json");
+    let default_ignores_file = current_dir.join("ignores.json");
     let redacted_mapping_file = current_dir.join("redacted-mapping.txt");
 
     let secrets_file = matches

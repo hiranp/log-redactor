@@ -1,4 +1,3 @@
-
 # log-redactor
 
 [![Release](https://img.shields.io/github/v/release/hiranp/log-redactor)](https://img.shields.io/github/v/release/hiranp/log-redactor)
@@ -7,7 +6,7 @@
 [![Commit activity](https://img.shields.io/github/commit-activity/m/hiranp/log-redactor)](https://img.shields.io/github/commit-activity/m/hiranp/log-redactor)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Utility to redact/mask key parts of logs and other files that need to be shared without breaking the original log structure. It can redact IPV4 and IPV6 addresses, hostnames, URLs, email addresses, phone numbers, names, and API keys. It can also redact custom patterns if interactive mode is enabled. The script reads from `secrets.csv` and `ignore.csv` to keep track of sensitive information and patterns to ignore.
+Utility to redact/mask key parts of logs and other files that need to be shared without breaking the original log structure. It can redact IPV4 and IPV6 addresses, hostnames, URLs, email addresses, phone numbers, names, and API keys. It can also redact custom patterns if interactive mode is enabled. The script reads from `secrets.json` and `ignores.json` to keep track of sensitive information and patterns to ignore.
 
 The underlying redaction logic is implemented in both Python and Rust. The Python implementation is more feature-rich and supports redacting data from a variety of file types, including PDFs. The Rust implementation is faster and can redact data from tar, tar.gz, tgz, zip, and PDF files.
 
@@ -25,9 +24,9 @@ The underlying redaction logic is implemented in both Python and Rust. The Pytho
     - [Rust Usage](#rust-usage)
     - [Examples](#examples)
   - [How it works](#how-it-works)
-    - [Control files `secrets.csv` and `ignore.csv`](#control-files-secretscsv-and-ignorecsv)
-      - [`secrets.csv`](#secretscsv)
-      - [`ignore.csv`](#ignorecsv)
+    - [Control files `secrets.json` and `ignores.json`](#control-files-secretsjson-and-ignoresjson)
+      - [`secrets.json`](#secretsjson)
+      - [`ignores.json`](#ignoresjson)
   - [TODO](#todo)
   - [Credits](#credits)
 
@@ -37,8 +36,8 @@ The underlying redaction logic is implemented in both Python and Rust. The Pytho
 - Keeps track of redacted data in `redacted-mapping.txt` for future reference
 - Redaction of sensitive data from a variety of file types, including PDFs
 - Interactive mode to confirm redaction of sensitive data
-- Support for custom patterns in `secrets.csv` and `ignore.csv`
-- Support simple **glob patterns** in `secrets.csv` and `ignore.csv`
+- Support for custom patterns in `secrets.json` and `ignores.json`
+- Support simple **glob patterns** in `secrets.json` and `ignores.json`
 - Support for redacting data from tar, tar.gz, tgz, zip, and PDF files
 
 ## Installation
@@ -109,8 +108,8 @@ The redacted file is saved as `<original-filename>-redacted.<extension>`.
 
 1. **Basic Redaction**: Run `cargo run --release -- <path>` where `<path>` is the file, directory, or archive (tar, tar.gz, tgz, zip, or pdf) you want to redact.
 2. **Interactive Mode**: Run `cargo run --release -- <path> -i yes` to redact interactively. Enter 'yes' or 'no' when prompted.
-3. **Specify Secrets File**: Use the `-s` or `--secrets` flag to specify the path to the secrets file. Example: `cargo run --release -- <path> -s /path/to/secrets.csv`
-4. **Specify Ignores File**: Use the `-g` or `--ignores` flag to specify the path to the ignores file. Example: `cargo run --release -- <path> -g /path/to/ignore.csv`
+3. **Specify Secrets File**: Use the `-s` or `--secrets` flag to specify the path to the secrets file. Example: `cargo run --release -- <path> -s /path/to/secrets.json`
+4. **Specify Ignores File**: Use the `-g` or `--ignores` flag to specify the path to the ignores file. Example: `cargo run --release -- <path> -g /path/to/ignores.json`
 
 ### Examples
 
@@ -135,7 +134,7 @@ The redacted file is saved as `<original-filename>-redacted.<extension>`.
 - **Redact a file with custom secrets and ignores**:
 
     ```sh
-    cargo run --release -- /path/to/file.txt -s /path/to/secrets.csv -g /path/to/ignore.csv
+    cargo run --release -- /path/to/file.txt -s /path/to/secrets.json -g /path/to/ignores.json
     ```
 
 - **More help**:
@@ -156,11 +155,11 @@ For numbers, the script uses (800) 555‑0100 through (800) 555‑0199 range. Se
 
 For email addresses, the script uses `redacted.user@example.com` as the redacted email address. See <https://en.wikipedia.org/wiki/Example.com> for more information.
 
-### Control files `secrets.csv` and `ignore.csv`
+### Control files `secrets.json` and `ignores.json`
 
-The script reads from `secrets.csv` and `ignore.csv` to manage sensitive information that should be redacted or ignored during the redaction process.
+The script reads from `secrets.json` and `ignores.json` to manage sensitive information that should be redacted or ignored during the redaction process.
 
-#### `secrets.csv`
+#### `secrets.json`
 
 This file contains patterns of sensitive information that should always be redacted. Each line in the file specifies a type of sensitive information (e.g., `ipv4`, `email`, etc.) and the corresponding value to be redacted.
 
@@ -188,32 +187,34 @@ Examples:
 
 Example:
 
-```csv
-ipv4,192.168.1.1
-email,john.doe@example.com
-phone,123-456-7890
-hostname,example.com
-hostname,"special*"
-hostname,"test-*.local"
-email,"*@internal.com"
-url,https://www.example.com
-api,apikey=1234567890abcdef
+```json
+{
+    "ipv4": ["192.168.1.1"],
+    "email": ["john.doe@example.com"],
+    "phone": ["123-456-7890"],
+    "hostname": ["example.com", "special*", "test-*.local"],
+    "email": ["*@internal.com"],
+    "url": ["https://www.example.com"],
+    "api": ["apikey=1234567890abcdef"]
+}
 ```
 
-#### `ignore.csv`
+#### `ignores.json`
 
 This file contains patterns of information that should be ignored during the redaction process. Each line in the file specifies a type of information (e.g., ipv4, email, etc.) and the corresponding value to be ignored.
 
 Example:
 
-```csv
-ipv4,127.0.0.1
-email,admin@example.com
-phone,555-555-5555
-hostname,localhost
-url,http://localhost
-email,"junk*@*"
-api,apikey=ignorethisapikey
+```json
+{
+    "ipv4": ["127.0.0.1"],
+    "email": ["admin@example.com"],
+    "phone": ["555-555-5555"],
+    "hostname": ["localhost"],
+    "url": ["http://localhost"],
+    "email": ["junk*@*"],
+    "api": ["apikey=ignorethisapikey"]
+}
 ```
 
 In interactive mode, the script will ask you to confirm each redaction. You can choose to always redact that data, never redact that data, or redact/not redact just that instance of the data. If you are not in interactive mode, the script will always try to redact the data.
