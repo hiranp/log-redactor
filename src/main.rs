@@ -5,13 +5,14 @@ use log_redactor::Redactor;
 use std::env;
 use std::path::{Path, PathBuf};
 
+mod version;
+use version::FULL_VERSION;
+
 fn main() {
-    let matches = Command::new("Redactor")
-        .version("1.0b")
+    let matches = Command::new("Log Redactor")
         .author("HP <null@hiranpatel.com>")
-        .about(
-            "A tool for redacting sensitive information in files and archives. Supports various file types including text files, PDFs, and archives (ZIP, TAR, GZ, BZIP2).",
-        )
+        .version(FULL_VERSION.as_str())
+        .about("A tool for redacting sensitive information in files and archives. Supports various file types including text files, PDFs, and archives (ZIP, TAR, GZ, BZIP2).")
         .arg(
             Arg::new("path")
                 .help("The path to a file, directory, or ZIP archive to redact")
