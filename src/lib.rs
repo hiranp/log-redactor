@@ -70,14 +70,33 @@ pub struct Redactor {
 }
 
 lazy_static! {
-    static ref PHONE_REGEX: Regex =
-        Regex::new(r"\b(?:\+?1[-. ]?)?\s*\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4}\b").unwrap();
-    static ref EMAIL_REGEX: Regex =
-        Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+    static ref IPV4_REGEX: Regex = Regex::new(
+        r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"
+    ).unwrap();
+    
+    static ref IPV6_REGEX: Regex = Regex::new(
+        r"(?i)\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b|(?:[0-9a-f]{1,4}:)*(?::[0-9a-f]{1,4})*(?::(?::[0-9a-f]{1,4})*)?")
+        .unwrap();
+    
+    static ref PHONE_REGEX: Regex = Regex::new(
+        r"\b(?:\+?1[-. ]?)?\s*\(?\d{3}\)?[-. ]\d{3}[-. ]\d{4}\b"
+    ).unwrap();
+    
+    static ref EMAIL_REGEX: Regex = Regex::new(
+        r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"
+    ).unwrap();
+    
+    static ref URL_REGEX: Regex = Regex::new(
+        r"https?://(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?:/[^\s]*)?"
+    ).unwrap();
+    
+    static ref HOSTNAME_REGEX: Regex = Regex::new(
+        r"(?:^|[^.])[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}"
+    ).unwrap();
+    
     static ref API_REGEX: Regex = Regex::new(
-        r"(?i)(?P<key_type>apikey|apitoken|api|token|key)=(?P<value>[A-Za-z0-9._~+/-]+=*)"
-    )
-    .unwrap();
+        r"(?i)(token|key|api|apikey|apitoken)=([^&\s]*)"
+    ).unwrap();
 }
 
 impl Redactor {
@@ -122,41 +141,13 @@ impl Redactor {
 
     pub fn init_patterns() -> HashMap<String, Regex> {
         let mut patterns = HashMap::new();
-
-        patterns.insert(
-            "ipv4".to_string(),
-            // Updated to be more specific about IPv4 addresses
-            Regex::new(r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b").unwrap(),
-        );
-        patterns.insert(
-            "ipv6".to_string(),
-            Regex::new(r"(?i)\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b|(?:[0-9a-f]{1,4}:)*(?::[0-9a-f]{1,4})*(?::(?::[0-9a-f]{1,4})*)?").unwrap(),
-        );
-        patterns.insert(
-            "phone".to_string(),
-            // Updated regex to require separators between digit groups
-            Regex::new(r"\b(?:\+?1[-. ]?)?\s*\(?\d{3}\)?[-. ]\d{3}[-. ]\d{4}\b").unwrap(),
-        );
-        patterns.insert(
-            "email".to_string(),
-            Regex::new(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+").unwrap(),
-        );
-        patterns.insert(
-            "url".to_string(),
-            // Updated to be more specific and avoid matching parts of already redacted URLs
-            Regex::new(r"https?://(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?:/[^\s]*)?").unwrap(),
-        );
-        patterns.insert(
-            "hostname".to_string(),
-            // Updated to be more specific and avoid matching parts of already redacted hostnames
-            Regex::new(r"(?:^|[^.])[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}").unwrap(),
-        );
-        patterns.insert(
-            "api".to_string(),
-            // Capture the exact key type to preserve it
-            Regex::new(r"(?i)(token|key|api|apikey|apitoken)=([^&\s]*)").unwrap(),
-        );
-
+        patterns.insert("ipv4".to_string(), IPV4_REGEX.clone());
+        patterns.insert("ipv6".to_string(), IPV6_REGEX.clone());
+        patterns.insert("phone".to_string(), PHONE_REGEX.clone());
+        patterns.insert("email".to_string(), EMAIL_REGEX.clone());
+        patterns.insert("url".to_string(), URL_REGEX.clone());
+        patterns.insert("hostname".to_string(), HOSTNAME_REGEX.clone());
+        patterns.insert("api".to_string(), API_REGEX.clone());
         patterns
     }
 

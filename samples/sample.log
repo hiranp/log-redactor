@@ -104,3 +104,34 @@ key=tokenvalue5678
 apikey=1112131415key
 apitoken=abcdefg123456
 api=xyz0987
+
+# Mixed Examples - Complex Log Entries
+[2023-12-17T10:15:23Z] INFO user@company.com accessed https://api.example.com/v1/users from 192.168.1.100
+[2023-12-17T10:15:24Z] WARN Failed login attempt from 2001:0db8:85a3:0000:0000:8a2e:0370:7334
+[2023-12-17T10:15:25Z] ERROR API key violation - key=ab12cd34ef56gh78 host=backend-prod-01.example.com
+[2023-12-17T10:15:26Z] DEBUG Call from (555) 123-4567 to support system uuid=123e4567-e89b-12d3-a456-426614174000
+
+# Customer Service Logs
+timestamp=1703062427 level=INFO agent="Sarah Smith" phone="(800) 555-0123" case_id=CS123456
+timestamp=1703062428 level=INFO agent="John Doe" email=john.doe@support.example.com ticket=HD987654
+timestamp=1703062429 level=WARN ip_address=10.20.30.40 failed_auth=true user_agent="Mozilla/5.0"
+
+# System Monitoring
+[2023-12-17 10:20:00] host=db-primary-01.internal status=UP ip=172.16.0.100 load=0.75
+[2023-12-17 10:20:01] host=cache-redis-02.internal status=WARN ip=172.16.0.101 memory=85%
+[2023-12-17 10:20:02] host=app-server-03.internal status=DOWN ip=172.16.0.102 error="Connection refused"
+
+# API Gateway Logs
+method=POST path=/api/v1/users ip=203.0.113.100 api_key=pk_live_abcdef123456 response_time=235ms
+method=GET path=/api/v1/orders ip=2001:db8::1234 token=sk_test_98765432xyz response_time=189ms
+method=PUT path=/api/v1/products ip=198.51.100.50 auth=Bearer_Token_xyz789 response_time=150ms
+
+# Social Media Integration
+platform=twitter handle=@techcompany followers=50000 last_post="2023-12-17T10:25:00Z"
+platform=linkedin profile="https://linkedin.com/company/tech-example" employees=1000
+platform=facebook page="fb.com/techexample" likes=25000 admin_email=social@example.com
+
+# Security Events
+event=login src_ip=10.0.0.100 user=admin@internal.com status=success mfa=true timestamp=1703062430
+event=firewall_block src_ip=192.0.2.100 dst_ip=10.0.0.50 port=443 reason="Invalid certificate"
+event=ssh_attempt user=root src_ip=2001:db8:1234:5678::1 status=blocked timestamp=1703062431

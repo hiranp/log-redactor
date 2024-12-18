@@ -215,8 +215,119 @@ mod tests {
 
     #[test]
     fn test_sample_log_redaction() {
+        use std::fs;
+        use tempfile::tempdir;
+
+        // Create temporary directory
+        let temp_dir = tempdir().expect("Failed to create temp directory");
+        let temp_path = temp_dir.path();
+
+        // Create sample files in temp directory
+        let sample_log = temp_path.join("sample.log");
+        let sample_content = r#"# Sample Log File
+    
+# IPv4 Examples
+192.168.1.1
+10.0.0.255
+
+# Email Examples
+user@example.com
+admin@company.com
+
+# Phone Numbers
+(123) 456-7890
+800-555-0123
+
+# Mixed Examples - Complex Log Entries
+[2023-12-17T10:15:23Z] INFO user@company.com accessed https://api.example.com/v1/users from 192.168.1.100
+[2023-12-17T10:15:24Z] WARN Failed login attempt from 2001:0db8:85a3:0000:0000:8a2e:0370:7334
+[2023-12-17T10:15:25Z] ERROR API key violation - key=ab12cd34ef56gh78 host=backend-prod-01.example.com
+[2023-12-17T10:15:26Z] DEBUG Call from (555) 123-4567 to support system uuid=123e4567-e89b-12d3-a456-426614174000
+
+# Customer Service Logs
+timestamp=1703062427 level=INFO agent="Sarah Smith" phone="(800) 555-0123" case_id=CS123456
+timestamp=1703062428 level=INFO agent="John Doe" email=john.doe@support.example.com ticket=HD987654
+timestamp=1703062429 level=WARN ip_address=10.20.30.40 failed_auth=true user_agent="Mozilla/5.0"
+
+# System Monitoring
+[2023-12-17 10:20:00] host=db-primary-01.internal status=UP ip=172.16.0.100 load=0.75
+[2023-12-17 10:20:01] host=cache-redis-02.internal status=WARN ip=172.16.0.101 memory=85%
+[2023-12-17 10:20:02] host=app-server-03.internal status=DOWN ip=172.16.0.102 error="Connection refused"
+
+# API Gateway Logs
+method=POST path=/api/v1/users ip=203.0.113.100 api_key=pk_live_abcdef123456 response_time=235ms
+method=GET path=/api/v1/orders ip=2001:db8::1234 token=sk_test_98765432xyz response_time=189ms
+method=PUT path=/api/v1/products ip=198.51.100.50 auth=Bearer_Token_xyz789 response_time=150ms
+
+# Social Media Integration
+platform=twitter handle=@techcompany followers=50000 last_post="2023-12-17T10:25:00Z"
+platform=linkedin profile="https://linkedin.com/company/tech-example" employees=1000
+platform=facebook page="fb.com/techexample" likes=25000 admin_email=social@example.com
+
+# Security Events
+event=login src_ip=10.0.0.100 user=admin@internal.com status=success mfa=true timestamp=1703062430
+event=firewall_block src_ip=192.0.2.100 dst_ip=10.0.0.50 port=443 reason="Invalid certificate"
+event=ssh_attempt user=root src_ip=2001:db8:1234:5678::1 status=blocked timestamp=1703062431
+
+"#;
+        fs::write(&sample_log, sample_content).expect("Failed to write sample log");
+
+        // Create secrets.csv
+        let secrets_file = temp_path.join("secrets.csv");
+        fs::write(&secrets_file, "ipv4,192.168.1.1\nemail,user@example.com")
+            .expect("Failed to write secrets");
+
+        // Create ignore.csv
+        let ignore_file = temp_path.join("ignore.csv");
+        fs::write(&ignore_file, "phone,800-555-0123").expect("Failed to write ignores");
+
+        // Create mapping file path
+        let mapping_file = temp_path.join("redacted-mapping.txt");
+
+        // Initialize redactor with temp files
+        let mut redactor = Redactor::new(
+            false,
+            secrets_file.to_str().unwrap(),
+            ignore_file.to_str().unwrap(),
+            mapping_file.to_str().unwrap(),
+        );
+
+        // Redact the sample log
+        redactor.redact_file(sample_log.to_str().unwrap());
+
+        // Verify redacted file exists and contains expected content
+        let redacted_path = sample_log.with_file_name("sample-redacted.log");
+        assert!(redacted_path.exists(), "Redacted file should exist");
+
+        // Read and verify redacted content
+        let redacted_content =
+            fs::read_to_string(redacted_path).expect("Failed to read redacted file");
+
+        assert!(
+            redacted_content.contains("240.0.0."),
+            "Should contain redacted IPv4"
+        );
+        assert!(
+            !redacted_content.contains("192.168.1.1"),
+            "Should not contain original IPv4"
+        );
+        assert!(
+            redacted_content.contains("redacted"),
+            "Should contain redaction markers"
+        );
+        assert!(
+            redacted_content.contains("800-555-0123"),
+            "Should preserve ignored phone number"
+        );
+
+        // Temp directory and contents are automatically cleaned up when temp_dir is dropped
+    }
+
+    #[test]
+    fn test_sample_static_log_redaction() {
         use std::fs::File;
         use std::io::{BufRead, BufReader};
+
         // Delete the sample_redacted.log file if it exists
         std::fs::remove_file("samples/sample_redacted.log").ok();
 
@@ -255,59 +366,53 @@ mod tests {
             .expect("Failed to write redacted log");
     }
 
-    #[cfg(test)]
-    mod tests {
-        use super::*;
+    #[test]
+    fn test_process_tar_file() {
         use std::fs::File;
         use std::io::{BufRead, BufReader};
         use tempfile::tempdir;
 
-        #[test]
-        fn test_process_tar_file() {
-            // Create a temporary directory
-            let temp_dir = tempdir().expect("Failed to create temp dir");
-            let temp_dir_path = temp_dir.path().to_str().unwrap();
+        // Create a temporary directory
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let temp_dir_path = temp_dir.path().to_str().unwrap();
 
-            // Initialize the redactor with paths to secrets and ignores
-            let mut redactor = Redactor::new(
-                false,
-                "samples/secrets.csv",
-                "samples/ignore.csv",
-                &format!("{}/redacted-mapping.txt", temp_dir_path),
-            );
+        // Initialize the redactor with paths to secrets and ignores
+        let mut redactor = Redactor::new(
+            false,
+            "samples/secrets.csv",
+            "samples/ignore.csv",
+            &format!("{}/redacted-mapping.txt", temp_dir_path),
+        );
 
-            // Copy the sample.tar file to the temporary directory
-            let sample_tar_path = format!("{}/sample.tar", temp_dir_path);
-            std::fs::copy("samples/sample.tar", &sample_tar_path)
-                .expect("Failed to copy sample.tar");
+        // Copy the sample.tar file to the temporary directory
+        let sample_tar_path = format!("{}/sample.tar", temp_dir_path);
+        std::fs::copy("samples/sample.tar", &sample_tar_path).expect("Failed to copy sample.tar");
 
-            // Call redact_tar to process the tar file
-            redactor
-                .redact_tar(&sample_tar_path)
-                .expect("Failed to redact tar file");
+        // Call redact_tar to process the tar file
+        redactor
+            .redact_tar(&sample_tar_path)
+            .expect("Failed to redact tar file");
 
-            // Verify that the redacted files are created in the temporary directory
-            let redacted_dir_path =
-                format!("{}-redacted", sample_tar_path.trim_end_matches(".tar"));
-            assert!(
-                std::path::Path::new(&redacted_dir_path).exists(),
-                "Redacted directory not found"
-            );
+        // Verify that the redacted files are created in the temporary directory
+        let redacted_dir_path = format!("{}-redacted", sample_tar_path.trim_end_matches(".tar"));
+        assert!(
+            std::path::Path::new(&redacted_dir_path).exists(),
+            "Redacted directory not found"
+        );
 
-            // Read and verify the redacted files
-            for entry in
-                std::fs::read_dir(&redacted_dir_path).expect("Failed to read redacted directory")
-            {
-                let entry = entry.expect("Failed to read entry");
-                let path = entry.path();
-                if path.is_file() {
-                    let file = File::open(&path).expect("Failed to open redacted file");
-                    let reader = BufReader::new(file);
-                    for line in reader.lines() {
-                        let line = line.expect("Failed to read line");
-                        // Add assertions to verify redaction
-                        assert!(line.contains("redacted"), "Line not redacted: {}", line);
-                    }
+        // Read and verify the redacted files
+        for entry in
+            std::fs::read_dir(&redacted_dir_path).expect("Failed to read redacted directory")
+        {
+            let entry = entry.expect("Failed to read entry");
+            let path = entry.path();
+            if path.is_file() {
+                let file = File::open(&path).expect("Failed to open redacted file");
+                let reader = BufReader::new(file);
+                for line in reader.lines() {
+                    let line = line.expect("Failed to read line");
+                    // Add assertions to verify redaction
+                    assert!(line.contains("redacted"), "Line not redacted: {}", line);
                 }
             }
         }
