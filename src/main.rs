@@ -5,17 +5,17 @@ use log_redactor::Redactor;
 use std::env;
 use std::path::{Path, PathBuf};
 
-mod version;
-use version::FULL_VERSION;
+// Include the generated version file
+include!(concat!(env!("OUT_DIR"), "/version_gen.rs"));
 
 fn main() {
     let matches = Command::new("Log Redactor")
         .author("HP <null@hiranpatel.com>")
-        .version(FULL_VERSION.as_str())
+        .version(VERSION)
         .about("A tool for redacting sensitive information in files and archives. Supports various file types including text files, PDFs, and archives (ZIP, TAR, GZ, BZIP2).")
         .arg(
             Arg::new("path")
-                .help("The path to a file, directory, or ZIP archive to redact")
+                .help("The path to a file, directory, or archive to redact")
                 .required(true)
                 .index(1),
         )

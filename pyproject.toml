@@ -5,7 +5,7 @@ description = "Utility to redact / mask key parts of logs and other files that n
 authors = [{ name = "Hiran Patel", email = "null@hiranpatel.com" }]
 readme = "README.md"
 keywords = ['python']
-requires-python = ">=3.9,<4.0"
+requires-python = ">=3.10,<4.0"
 classifiers = [
     "Intended Audience :: Developers",
     "Programming Language :: Python",
@@ -83,7 +83,8 @@ select = [
     # mccabe
     "C90",
     # pycodestyle
-    "E", "W",
+    "E",
+    "W",
     # pyflakes
     "F",
     # pygrep-hooks
@@ -114,4 +115,3 @@ skip_empty = true
 [tool.coverage.run]
 branch = true
 source = ["log_redactor"]
-
