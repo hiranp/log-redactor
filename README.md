@@ -17,12 +17,12 @@ The underlying redaction logic is implemented in both Python and Rust. The Pytho
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
   - [Installation](#installation)
-  - [Usage](#usage)
   - [Contributing](#contributing)
   - [License](#license)
   - [Links](#links)
-  - [Python Usage](#python-usage)
-  - [Rust Usage](#rust-usage)
+  - [Usage](#usage)
+    - [Python Usage](#python-usage)
+    - [Rust Usage](#rust-usage)
     - [Examples](#examples)
   - [How it works](#how-it-works)
     - [Control files `secrets.csv` and `ignore.csv`](#control-files-secretscsv-and-ignorecsv)
@@ -61,9 +61,23 @@ The underlying redaction logic is implemented in both Python and Rust. The Pytho
     pip install pymupdf
     ```
 
-## Usage
+4. (Optional) Install `Rust` for faster redaction:
 
-Instructions on how to use the tool.
+    ```sh
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    ```
+
+5. (Optional) Build the Rust implementation:
+
+    ```sh
+    cargo build --release
+    ```
+
+6. (Optional) Run the Rust implementation:
+
+    ```sh
+    cargo run --release -- <path>
+    ```
 
 ## Contributing
 
@@ -78,7 +92,11 @@ This project is licensed under the Apache 2.0 License - see the [LICENSE](http:/
 - **GitHub repository**: <https://github.com/hiranp/log-redactor/>
 - **Documentation**: <https://github.com/hiranp/log-redactor/blob/main/docs/index.md>
 
-## Python Usage
+## Usage
+
+Instructions on how to use the tool.
+
+### Python Usage
 
 1. **Basic Redaction**: Run `python3 redactor.py <path>` where `<path>` is the file, directory, or (tar, gzip, or zip) archive you want to redact.
 2. **Interactive Mode**: Run `python3 redactor.py <path> -i` to redact interactively.
@@ -86,7 +104,7 @@ This project is licensed under the Apache 2.0 License - see the [LICENSE](http:/
 
 The redacted file is saved as `<original-filename>-redacted.<extension>`.
 
-## Rust Usage
+### Rust Usage
 
 1. **Basic Redaction**: Run `cargo run --release -- <path>` where `<path>` is the file, directory, or archive (tar, tar.gz, tgz, zip, or pdf) you want to redact.
 2. **Interactive Mode**: Run `cargo run --release -- <path> -i yes` to redact interactively. Enter 'yes' or 'no' when prompted.
@@ -176,13 +194,13 @@ In interactive mode, the script will ask you to confirm each redaction. You can 
 ## TODO
 
 - [x] Complete rust implementation
-- [ ] Use third-party libraries to validate strings before redacting. Review the following libraries:
-  - [ ] Use [garde](https://docs.rs/garde/latest/garde/) or
-  - [ ] Use validators from [validators](https://docs.rs/validators/latest/validators/) or
-  - [ ] Use [phonenumbers](https://pypi.org/project/phonenumbers/) to validate phone numbers or
-- [ ] Add support social security numbers
-- [ ] Improve redaction of pdf files
+- [ ] Review third-party libraries to validate strings before redacting.
+  - [ ] [garde](https://docs.rs/garde/latest/garde/) or
+  - [ ] [validators](https://docs.rs/validators/latest/validators/) or
+  - [ ] [phonenumbers](https://pypi.org/project/phonenumbers/) to validate phone numbers or
+- [ ] Add support for social security numbers
 - [ ] Add support for incorporating custom patterns
+- [ ] Improve redaction of pdf files
 - [ ] Add support for incorporating ML models to redact data more accurately
 - [ ] Add support for redacting data in multiple files at once
 
