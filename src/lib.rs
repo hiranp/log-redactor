@@ -604,6 +604,7 @@ impl Redactor {
             "({}) {}-{:04}" => format!("(800) 555-{:04}", count),
             "{}-{}-{:04}" => format!("800-555-{:04}", count),
             "{}.{}.{}" => format!("800.555.{:04}", count),
+            "{} {} {}" => format!("800 555 {:04}", count),
             _ => format!("800 555 {:04}", count),
         };
         *self.counter.get_mut("phone").unwrap() += 1;
@@ -634,14 +635,14 @@ impl Redactor {
 
     fn generate_api_key(&mut self, key_type: &str) -> String {
         let count = {
-            let counter = self.counter.entry("api_key".to_string()).or_insert(0);
+            let counter = self.counter.entry(format!("{}_key", key_type)).or_insert(0);
             let current = *counter;
             *counter += 1;
+            debug!("Counter for {}: {}", key_type, current);
             current
         };
 
-        // Use the original key type in the redacted output
-        let redacted = format!("{}=redacted_{}", key_type, count);
+        let redacted = format!("{}=redacted_{:03}", key_type, count);
         debug!("Generated redacted key: {}", redacted);
         redacted
     }

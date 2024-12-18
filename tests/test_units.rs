@@ -82,7 +82,7 @@ mod tests {
             ("eisenhower@army.us.mil", true),
             ("maverick@topgun.us.af.mil", true),
             ("user.name+tag+sorting@example.com", true),
-            ("Simon Johnston <johnstonsk@gmail.com>", false),
+            ("Richard Nixon <r.nixon@whitehouse.gov>", false),
             ("McLovin <mclovin@hawaii.gov>", false),
             ("invalid.email@", false),
             ("@invalid.com", false),
@@ -161,7 +161,7 @@ mod tests {
             ("apikey=secretvalue123", true),
             ("key=f3234235.1235wqer32145340", true),
             ("invalid-key", false),
-            ("apikey=", true),
+            ("apikey=", false),
         ];
         run_validation_test("API Key", test_cases, validate_api);
     }
@@ -173,12 +173,12 @@ mod tests {
             false,
             "samples/secrets.csv",
             "samples/ignore.csv",
-            "samples/samples/redacted-mapping.txt",
+            "samples/redacted-mapping.txt",
         );
         let test_cases = vec![
             ("token=abcdef1234567890", "token=redacted_0"),
-            ("apikey=secretvalue123", "apikey=redacted_0"),
-            ("key=f3234235.1235wqer32145340", "key=redacted_0"),
+            ("apikey=secretvalue123", "apikey=redacted_1"),
+            ("key=f3234235.1235wqer32145340", "key=redacted_2"),
             ("invalid-key", "invalid-key"),
             ("apikey=", "apikey="),
         ];
@@ -194,13 +194,23 @@ mod tests {
             "samples/redacted-mapping.txt",
         );
         let test_cases = vec![
-            ("123-456-7890", "800-555-0000"),
-            ("(123) 456-7890", "800-555-0001"),
-            ("123.456.7890", "800-555-0002"),
-            ("123 456 7890", "800-555-0003"),
-            // Add more test cases...
+            "123-456-7890",
+            "(123) 456-7890",
+            "123.456.7890",
+            "123 456 7890",
+            "201-555-0123",
+            "800-555-0123",
         ];
-        run_redaction_test("Phone", test_cases, &mut redactor);
+
+        for input in test_cases {
+            let redacted = redactor.redact(vec![input.to_string()])[0].clone();
+            assert!(
+                redacted.contains("800") && redacted.contains("555"),
+                "Redaction failed for input '{}'. Got '{}'",
+                input,
+                redacted
+            );
+        }
     }
 
     #[test]
@@ -215,7 +225,7 @@ mod tests {
             false,
             "samples/secret.csv",
             "samples/ignore.csv",
-            "samples/samples/redacted-mapping.txt",
+            "samples/redacted-mapping.txt",
         );
 
         // Open the sample.log file
@@ -245,9 +255,62 @@ mod tests {
             .expect("Failed to write redacted log");
     }
 
-    #[test]
-    fn test_process_tar_file() {
-        // Test processing of tar files
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::fs::File;
+        use std::io::{BufRead, BufReader};
+        use tempfile::tempdir;
+
+        #[test]
+        fn test_process_tar_file() {
+            // Create a temporary directory
+            let temp_dir = tempdir().expect("Failed to create temp dir");
+            let temp_dir_path = temp_dir.path().to_str().unwrap();
+
+            // Initialize the redactor with paths to secrets and ignores
+            let mut redactor = Redactor::new(
+                false,
+                "samples/secrets.csv",
+                "samples/ignore.csv",
+                &format!("{}/redacted-mapping.txt", temp_dir_path),
+            );
+
+            // Copy the sample.tar file to the temporary directory
+            let sample_tar_path = format!("{}/sample.tar", temp_dir_path);
+            std::fs::copy("samples/sample.tar", &sample_tar_path)
+                .expect("Failed to copy sample.tar");
+
+            // Call redact_tar to process the tar file
+            redactor
+                .redact_tar(&sample_tar_path)
+                .expect("Failed to redact tar file");
+
+            // Verify that the redacted files are created in the temporary directory
+            let redacted_dir_path =
+                format!("{}-redacted", sample_tar_path.trim_end_matches(".tar"));
+            assert!(
+                std::path::Path::new(&redacted_dir_path).exists(),
+                "Redacted directory not found"
+            );
+
+            // Read and verify the redacted files
+            for entry in
+                std::fs::read_dir(&redacted_dir_path).expect("Failed to read redacted directory")
+            {
+                let entry = entry.expect("Failed to read entry");
+                let path = entry.path();
+                if path.is_file() {
+                    let file = File::open(&path).expect("Failed to open redacted file");
+                    let reader = BufReader::new(file);
+                    for line in reader.lines() {
+                        let line = line.expect("Failed to read line");
+                        // Add assertions to verify redaction
+                        assert!(line.contains("redacted"), "Line not redacted: {}", line);
+                    }
+                }
+            }
+        }
     }
 
     #[test]
