@@ -270,11 +270,11 @@ impl Redactor {
             "yes" | "y" => true,
             "no" | "n" => false,
             "always" | "a" => {
-                self.save_to_file("secrets.csv", secret_type, value);
+                self.save_to_file("secrets.json", secret_type, value);
                 true
             }
             "never" | "r" => {
-                self.save_to_file("ignore.csv", secret_type, value);
+                self.save_to_file("ignore.json", secret_type, value);
                 false
             }
             _ => false,
@@ -282,9 +282,20 @@ impl Redactor {
     }
 
     fn save_to_file(&self, filename: &str, secret_type: &str, value: &str) {
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(filename) {
-            writeln!(file, "{},{}", secret_type, value).unwrap();
-        }
+        let path = Path::new(filename);
+        let mut data: HashMap<String, Vec<String>> = if path.exists() {
+            let file = File::open(path).unwrap();
+            serde_json::from_reader(BufReader::new(file)).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+
+        data.entry(secret_type.to_string())
+            .or_insert_with(Vec::new)
+            .push(value.to_string());
+
+        let file = File::create(path).unwrap();
+        serde_json::to_writer_pretty(file, &data).unwrap();
     }
 
     fn should_ignore_value(&self, value: &str, pattern_type: &str) -> bool {
