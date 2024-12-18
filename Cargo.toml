@@ -23,6 +23,10 @@ lazy_static = "1.5.0"
 email_address = "0.2.9"
 flate2 = "1.0.35"
 tar = "0.4.43"
+infer = { version = "0.16.0", default-features = false }
+bzip2 = { version = "0.5.0", default-features = false, features = [
+  "libbz2-rs-sys",
+] }
 
 [lib]
 path = "src/lib.rs"

@@ -1,5 +1,5 @@
-use clap::{Arg, Command};
 use clap::builder::PossibleValuesParser;
+use clap::{Arg, Command};
 use log::info;
 use log_redactor::Redactor;
 use std::env;
@@ -9,7 +9,9 @@ fn main() {
     let matches = Command::new("Redactor")
         .version("1.0b")
         .author("HP <null@hiranpatel.com>")
-        .about("Redacts sensitive information within files, directories, or TAR,GZ, and ZIP archives")
+        .about(
+            "A tool for redacting sensitive information in files and archives. Supports various file types including text files, PDFs, and archives (ZIP, TAR, GZ, BZIP2).",
+        )
         .arg(
             Arg::new("path")
                 .help("The path to a file, directory, or ZIP archive to redact")
@@ -41,7 +43,10 @@ fn main() {
         .get_matches();
 
     let path = matches.get_one::<String>("path").unwrap();
-    let interactive = matches.get_one::<String>("interactive").map(|s| s == "yes").unwrap_or(false);
+    let interactive = matches
+        .get_one::<String>("interactive")
+        .map(|s| s == "yes")
+        .unwrap_or(false);
 
     let current_dir = env::current_dir().unwrap();
     let default_secrets_file = current_dir.join("secrets.csv");
@@ -65,23 +70,43 @@ fn main() {
 
     let path = Path::new(path);
     if path.is_file() {
-        if path.extension().and_then(|ext| ext.to_str()) == Some("zip") {
-            redactor.redact_zip(path.to_str().unwrap());
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("pdf") {
-            if let Err(e) = redactor.redact_pdf(path.to_str().unwrap()) {
-                info!("Failed to redact PDF: {}", e);
+        let file_type = match std::fs::read(path) {
+            Ok(content) => match infer::get(&content) {
+                Some(kind) => kind,
+                None => {
+                    // Assume it's a regular text file if type cannot be determined
+                    redactor.redact_file(path.to_str().unwrap());
+                    return;
+                }
+            },
+            Err(e) => {
+                eprintln!("Error reading file: {}", e);
+                return;
             }
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("tar") {
-            if let Err(e) = redactor.redact_tar(path.to_str().unwrap()) {
-                info!("Failed to redact TAR file: {}", e);
+        };
+
+        match file_type.mime_type() {
+            "application/zip" => {
+                if let Err(e) = redactor.redact_zip(path.to_str().unwrap()) {
+                    info!("Failed to redact ZIP file: {}", e);
+                }
             }
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("tar.gz") 
-            || path.extension().and_then(|ext| ext.to_str()) == Some("tgz") {
-            if let Err(e) = redactor.redact_tar_gz(path.to_str().unwrap()) {
-                info!("Failed to redact TAR.GZ file: {}", e);
+            "application/pdf" => {
+                if let Err(e) = redactor.redact_pdf(path.to_str().unwrap()) {
+                    info!("Failed to redact PDF: {}", e);
+                }
             }
-        } else {
-            redactor.redact_file(path.to_str().unwrap());
+            "application/x-tar" => {
+                if let Err(e) = redactor.redact_tar(path.to_str().unwrap()) {
+                    info!("Failed to redact TAR file: {}", e);
+                }
+            }
+            "application/gzip" => {
+                if let Err(e) = redactor.redact_tar_gz(path.to_str().unwrap()) {
+                    info!("Failed to redact TAR.GZ file: {}", e);
+                }
+            }
+            _ => redactor.redact_file(path.to_str().unwrap()),
         }
     } else if path.is_dir() {
         redactor.redact_directory(path.to_str().unwrap());
@@ -91,4 +116,3 @@ fn main() {
 
     info!("Redaction process completed");
 }
-

@@ -1,3 +1,5 @@
+use flate2::read::GzDecoder;
+use infer;
 use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use lopdf::Document;
@@ -8,13 +10,12 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufReader, Write};
 use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::path::Path;
-use zip::read::ZipArchive;
-use flate2::read::GzDecoder;
 use tar::Archive;
+use zip::read::ZipArchive;
 
 pub mod redaction_utils;
 
@@ -75,7 +76,8 @@ lazy_static! {
         Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
     static ref API_REGEX: Regex = Regex::new(
         r"(?i)(?P<key_type>apikey|apitoken|api|token|key)=(?P<value>[A-Za-z0-9._~+/-]+=*)"
-    ).unwrap();
+    )
+    .unwrap();
 }
 
 impl Redactor {
@@ -248,26 +250,25 @@ impl Redactor {
         let mut redacted_line = line.to_string();
 
         for cap in captures {
-            let value = if pattern_type == "api" {
-                // For API keys, capture both the key type and value
-                let key_type = cap.name("key_type").map_or("api", |m| m.as_str());
-                let full_match = cap.get(0).unwrap().as_str();
-                (key_type, full_match)
+            let (key_type, value) = if pattern_type == "api" {
+                // Extract the actual key type from the match
+                let key_type = cap.get(1).map_or("api", |m| m.as_str());
+                (key_type, cap.get(0).unwrap().as_str())
             } else {
                 (pattern_type, cap.get(0).unwrap().as_str())
             };
 
-            let should_redact = if secrets_set.contains(value.1) {
+            let should_redact = if secrets_set.contains(value) {
                 true
-            } else if ignore_set.contains(value.1) {
+            } else if ignore_set.contains(value) {
                 false
             } else {
-                validator_fn(value.1) && (!interactive || self.ask_user(value.1, value.0))
+                validator_fn(value) && (!interactive || self.ask_user(value, key_type))
             };
 
             if should_redact {
-                let replacement = self.generate_unique_mapping(value.1, value.0);
-                redacted_line = redacted_line.replace(value.1, &replacement);
+                let replacement = self.generate_unique_mapping(value, key_type);
+                redacted_line = redacted_line.replace(value, &replacement);
             }
         }
 
@@ -291,48 +292,110 @@ impl Redactor {
     pub fn redact_file(&mut self, file: &str) {
         info!("Redacting file: {}", file);
         let path = Path::new(file);
-        if path.exists() {
-            let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
-
-            match extension {
-                "zip" => self.redact_zip(file),
-                "tar" => {
-                    if let Err(e) = self.redact_tar(file) {
-                        warn!("Failed to redact tar file: {}", e);
-                    }
-                }
-                "gz" => {
-                    if file.ends_with(".tar.gz") || file.ends_with(".tgz") {
-                        if let Err(e) = self.redact_tar_gz(file) {
-                            warn!("Failed to redact tar.gz file: {}", e);
-                        }
-                    } else {
-                        self.redact_plain_file(file);
-                    }
-                }
-                "pdf" => {
-                    if let Err(e) = self.redact_pdf(file) {
-                        warn!("Failed to redact pdf file: {}", e);
-                    }
-                }
-                _ => self.redact_plain_file(file),
-            }
-        } else {
+        if !path.exists() {
             warn!("File not found: {}", file);
+            return;
+        }
+
+        let content = match fs::read(path) {
+            Ok(content) => content,
+            Err(e) => {
+                warn!("Failed to read file: {}", e);
+                return;
+            }
+        };
+
+        // Use infer to detect file type
+        let kind = infer::get(&content);
+
+        match kind {
+            Some(k) => {
+                match k.mime_type() {
+                    // Handle archives
+                    mime if mime == "application/zip" => {
+                        info!("Detected ZIP archive");
+                        if let Err(e) = self.redact_zip(file) {
+                            warn!("Failed to process ZIP file: {}", e);
+                        }
+                        return;
+                    }
+                    mime if mime == "application/x-tar" => {
+                        info!("Detected TAR archive");
+                        if let Err(e) = self.redact_tar(file) {
+                            warn!("Failed to process TAR file: {}", e);
+                        }
+                        return;
+                    }
+                    mime if mime == "application/gzip" => {
+                        info!("Detected GZIP archive");
+                        if let Err(e) = self.redact_tar_gz(file) {
+                            warn!("Failed to process GZIP file: {}", e);
+                        }
+                        return;
+                    }
+                    mime if mime == "application/x-bzip2" => {
+                        info!("Detected BZIP2 archive");
+                        if let Err(e) = self.redact_bzip2(file) {
+                            warn!("Failed to process BZIP2 file: {}", e);
+                        }
+                        return;
+                    }
+                    // Handle other binary types
+                    mime if mime.starts_with("image/")
+                        || mime.starts_with("video/")
+                        || mime.starts_with("audio/") =>
+                    {
+                        warn!("Unsupported binary file type: {}", mime);
+                        return;
+                    }
+                    _ => (), // Continue processing other types
+                }
+            }
+            None => (), // No detected type, assume it's text
+        }
+
+        // Handle all text-based files
+        match String::from_utf8(content.clone()) {
+            Ok(text_content) => {
+                self.process_text_file(path, &text_content);
+            }
+            Err(_) => warn!("File appears to be binary and is not supported"),
         }
     }
 
-    fn redact_plain_file(&mut self, file: &str) {
-        let path = Path::new(file);
-        let lines: Vec<String> = io::BufReader::new(File::open(file).unwrap())
-            .lines()
-            .map(|line| line.unwrap())
-            .collect();
+    pub fn redact_bzip2(&mut self, bzip2_file: &str) -> Result<(), std::io::Error> {
+        info!("Redacting BZIP2 archive: {}", bzip2_file);
+        let file = File::open(bzip2_file)?;
+        let decoder = bzip2::read::BzDecoder::new(file);
+        let mut archive = Archive::new(decoder);
 
+        // Create output directory
+        let output_dir = format!("{}-redacted", bzip2_file.trim_end_matches(".bz2"));
+        fs::create_dir_all(&output_dir)?;
+
+        // Extract all files
+        archive.unpack(&output_dir)?;
+        info!("Extracted BZIP2 archive to: {}", output_dir);
+
+        // Process each file in the extracted directory
+        self.redact_directory(&output_dir);
+
+        info!("BZIP2 archive redaction complete");
+        Ok(())
+    }
+
+    fn process_text_file(&mut self, file_path: &Path, text_content: &str) {
+        let lines: Vec<String> = text_content.lines().map(|line| line.to_string()).collect();
         let redacted_lines = self.redact(lines);
 
-        let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("txt");
-        let file_stem = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("file");
+        let extension = file_path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("txt");
+        let file_stem = file_path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("file");
 
         let redacted_file_name = format!("{}-redacted.{}", file_stem, extension);
         let mut output_file = File::create(&redacted_file_name).unwrap();
@@ -364,29 +427,29 @@ impl Redactor {
         }
     }
 
-    pub fn redact_zip(&mut self, zip_file: &str) {
+    pub fn redact_zip(&mut self, zip_file: &str) -> Result<(), std::io::Error> {
         info!("Redacting ZIP archive: {}", zip_file);
-        let file = File::open(zip_file).unwrap();
-        let mut archive = ZipArchive::new(file).unwrap();
+        let file = File::open(zip_file)?;
+        let mut archive = ZipArchive::new(file)?;
 
         // Create output directory
         let output_dir = format!("{}-redacted", zip_file.trim_end_matches(".zip"));
-        fs::create_dir_all(&output_dir).unwrap();
+        fs::create_dir_all(&output_dir)?;
 
         for i in 0..archive.len() {
-            let mut file = archive.by_index(i).unwrap();
+            let mut file = archive.by_index(i)?;
             let outpath = Path::new(&output_dir).join(file.name());
 
             if file.is_dir() {
-                fs::create_dir_all(&outpath).unwrap();
+                fs::create_dir_all(&outpath)?;
             } else {
                 if let Some(p) = outpath.parent() {
                     if !p.exists() {
-                        fs::create_dir_all(&p).unwrap();
+                        fs::create_dir_all(p)?;
                     }
                 }
-                let mut outfile = File::create(&outpath).unwrap();
-                io::copy(&mut file, &mut outfile).unwrap();
+                let mut outfile = File::create(&outpath)?;
+                io::copy(&mut file, &mut outfile)?;
             }
         }
 
@@ -396,6 +459,7 @@ impl Redactor {
         self.redact_directory(&output_dir);
 
         info!("ZIP archive redaction complete");
+        Ok(())
     }
 
     pub fn redact_pdf(&mut self, file: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -508,18 +572,14 @@ impl Redactor {
     }
 
     fn generate_api_key(&mut self, key_type: &str) -> String {
-        let normalized_type = key_type.to_lowercase();
-        let counter_key = format!("{}_key", normalized_type);
-        
         let count = {
-            let counter = self.counter.entry(counter_key).or_insert(0);
+            let counter = self.counter.entry("api_key".to_string()).or_insert(0);
             let current = *counter;
             *counter += 1;
-            debug!("Counter for {}: {}", normalized_type, current);
             current
         };
 
-        // Preserve the original key type format in the redacted output
+        // Use the original key type in the redacted output
         let redacted = format!("{}=redacted_{}", key_type, count);
         debug!("Generated redacted key: {}", redacted);
         redacted
@@ -529,7 +589,7 @@ impl Redactor {
         info!("Redacting TAR archive: {}", tar_file);
         let file = File::open(tar_file)?;
         let mut archive = Archive::new(file);
-        
+
         // Create output directory
         let output_dir = format!("{}-redacted", tar_file.trim_end_matches(".tar"));
         fs::create_dir_all(&output_dir)?;
@@ -550,7 +610,7 @@ impl Redactor {
         let file = File::open(tar_gz_file)?;
         let gz = GzDecoder::new(file);
         let mut archive = Archive::new(gz);
-        
+
         // Create output directory - handle both .tar.gz and .tgz extensions
         let base_name = tar_gz_file
             .trim_end_matches(".tar.gz")
