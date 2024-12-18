@@ -134,8 +134,8 @@ impl Redactor {
         );
         patterns.insert(
             "phone".to_string(),
-            // Simplified pattern without lookahead
-            Regex::new(r"\b(?:\+?1[-. ]?)?\s*\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4}\b").unwrap(),
+            // Updated regex to require separators between digit groups
+            Regex::new(r"\b(?:\+?1[-. ]?)?\s*\(?\d{3}\)?[-. ]\d{3}[-. ]\d{4}\b").unwrap(),
         );
         patterns.insert(
             "email".to_string(),
@@ -258,15 +258,11 @@ impl Redactor {
     }
 
     fn should_ignore_value(&self, value: &str, pattern_type: &str) -> bool {
-        // Special handling for phone numbers that might be timestamps
         if pattern_type == "phone" {
-            // If it's all digits and length is 10 or 13 (typical for timestamps), ignore it
-            if value.chars().all(|c| c.is_ascii_digit()) {
-                let len = value.len();
-                if len == 10 || len == 13 {
-                    debug!("Ignoring likely timestamp: {}", value);
-                    return true;
-                }
+            // Ignore if value has no separators (likely a timestamp or ID)
+            if value.chars().filter(|c| c.is_ascii_digit()).count() == value.len() {
+                debug!("Ignoring numeric value without separators: {}", value);
+                return true;
             }
         }
         false
@@ -320,7 +316,7 @@ impl Redactor {
                 (pattern_type, cap.get(0).unwrap().as_str())
             };
 
-            // Add check for values to ignore
+            // Pass pattern_type to should_ignore_value
             if self.should_ignore_value(value, pattern_type) {
                 continue;
             }
