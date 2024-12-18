@@ -14,6 +14,7 @@ use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 use std::path::Path;
 use tar::Archive;
+use time::OffsetDateTime;
 use zip::read::ZipArchive;
 
 pub mod redaction_utils;
@@ -198,12 +199,33 @@ impl Redactor {
     }
 
     fn save_mapping_to_file(&self, original: &str, redacted: &str) {
-        if let Ok(mut file) = OpenOptions::new()
+        match OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.redacted_mapping_file)
         {
-            writeln!(file, "{},{}", original, redacted).unwrap();
+            Ok(mut file) => {
+                // Use now_utc() since now_local() isn't available
+                let now = OffsetDateTime::now_utc();
+                if let Err(e) = writeln!(
+                    file,
+                    "{},{},{}",
+                    now.format(
+                        &time::format_description::parse(
+                            "[year]-[month]-[day] [hour]:[minute]:[second]"
+                        )
+                        .unwrap()
+                    )
+                    .unwrap(),
+                    original,
+                    redacted
+                ) {
+                    warn!("Failed to write mapping to file: {}", e);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to open mapping file: {}", e);
+            }
         }
     }
 
@@ -411,16 +433,16 @@ impl Redactor {
             .unwrap_or("file");
 
         let redacted_file_name = format!("{}-redacted.{}", file_stem, extension);
-        let mut output_file = File::create(&redacted_file_name).unwrap();
-        for line in redacted_lines {
-            writeln!(output_file, "{}", line).unwrap();
-        }
 
-        if let Err(e) = self.save_mappings(&format!("{}-mappings.json", file_stem)) {
-            warn!("Failed to save mappings: {}", e);
+        // Write redacted content
+        if let Ok(mut output_file) = File::create(&redacted_file_name) {
+            for line in redacted_lines {
+                if let Err(e) = writeln!(output_file, "{}", line) {
+                    warn!("Failed to write redacted line: {}", e);
+                }
+            }
+            info!("Created redacted file: {}", redacted_file_name);
         }
-        info!("File redaction complete");
-        println!("Redacted file saved as {}", redacted_file_name);
     }
 
     pub fn redact_directory(&mut self, dir: &str) {
@@ -540,6 +562,7 @@ impl Redactor {
         Ok(redacted_text.into_bytes())
     }
 
+    #[allow(dead_code)]
     fn save_mappings(&self, filename: &str) -> Result<(), std::io::Error> {
         let mappings = json!(self.unique_mapping);
         let mut file = File::create(filename)?;
@@ -747,7 +770,7 @@ pub fn validate_phone(phone: &str) -> bool {
 pub fn validate_email(email: &str) -> bool {
     EMAIL_REGEX.is_match(email)
 }
-
+#[allow(dead_code)]
 pub fn is_valid_email(email: &str) -> bool {
     email_address::EmailAddress::is_valid(email)
 }
