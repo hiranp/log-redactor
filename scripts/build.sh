@@ -25,8 +25,8 @@ echo "Build completed successfully."
 
 # show compiled binaries
 echo "Compiled binaries located in:"
-echo "target/x86_64-unknown-linux-gnu/release/ and target/x86_64-pc-windows-gnu/release/"
-ls -lRh target/x86_64-unknown-linux-gnu/release/log_redactor* target/x86_64-pc-windows-gnu/release/log_redactor*
+echo "target/x86_64-unknown-linux-gnu/release/ and target/x86_64-pc-windows-gnu/release/ and target/x86_64-apple-darwin/release/"
+ls -lRh target/x86_64-unknown-linux-gnu/release/log_redactor* target/x86_64-pc-windows-gnu/release/log_redactor* target/x86_64-apple-darwin/release/log_redactor*
 
 # Copy the compiled binaries to the bin directory
 mkdir -p bin/macos-x86_64
