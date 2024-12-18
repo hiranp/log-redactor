@@ -51,6 +51,7 @@ fn main() {
     let current_dir = env::current_dir().unwrap();
     let default_secrets_file = current_dir.join("secrets.csv");
     let default_ignores_file = current_dir.join("ignore.csv");
+    let redacted_mapping_file = current_dir.join("redacted-mapping.txt");
 
     let secrets_file = matches
         .get_one::<String>("secrets")
@@ -66,6 +67,7 @@ fn main() {
         interactive,
         secrets_file.to_str().unwrap(),
         ignores_file.to_str().unwrap(),
+        redacted_mapping_file.to_str().unwrap(),
     );
 
     let path = Path::new(path);

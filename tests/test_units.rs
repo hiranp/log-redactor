@@ -169,7 +169,12 @@ mod tests {
     // Redaction Tests ========================================
     #[test]
     fn test_api_key_redaction() {
-        let mut redactor = Redactor::new(false, "samples/secrets.csv", "samples/ignore.csv");
+        let mut redactor = Redactor::new(
+            false,
+            "samples/secrets.csv",
+            "samples/ignore.csv",
+            "samples/samples/redacted-mapping.txt",
+        );
         let test_cases = vec![
             ("token=abcdef1234567890", "token=redacted_0"),
             ("apikey=secretvalue123", "apikey=redacted_0"),
@@ -182,7 +187,12 @@ mod tests {
 
     #[test]
     fn test_phone_redaction() {
-        let mut redactor = Redactor::new(false, "samples/secrets.csv", "samples/ignore.csv");
+        let mut redactor = Redactor::new(
+            false,
+            "samples/secrets.csv",
+            "samples/ignore.csv",
+            "samples/redacted-mapping.txt",
+        );
         let test_cases = vec![
             ("123-456-7890", "800-555-0000"),
             ("(123) 456-7890", "800-555-0001"),
@@ -201,7 +211,12 @@ mod tests {
         std::fs::remove_file("samples/sample_redacted.log").ok();
 
         // Initialize the redactor with paths to secrets and ignores
-        let mut redactor = Redactor::new(false, "samples/secret.csv", "samples/ignore.csv");
+        let mut redactor = Redactor::new(
+            false,
+            "samples/secret.csv",
+            "samples/ignore.csv",
+            "samples/samples/redacted-mapping.txt",
+        );
 
         // Open the sample.log file
         let file = File::open("samples/sample.log").expect("Failed to open sample.log");

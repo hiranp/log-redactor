@@ -11,17 +11,16 @@ Utility to redact/mask key parts of logs and other files that need to be shared 
 The underlying redaction logic is implemented in both Python and Rust. The Python implementation is more feature-rich and supports redacting data from a variety of file types, including PDFs. The Rust implementation is faster and can redact data from tar, tar.gz, tgz, zip, and PDF files.
 
 Unique features of the script include:
+
 - The **redaction output** conforms to original data types (e.g., IP addresses are redacted to valid IP addresses) to ensure the entire log remains valid and usable
+- Keeps track of redacted data in redacted-mapping.txt for future reference
 - Redaction of sensitive data from a variety of file types, including PDFs
 - Interactive mode to confirm redaction of sensitive data
 - Support for custom patterns in `secrets.csv` and `ignore.csv`
 - Support for redacting data from tar, tar.gz, tgz, zip, and PDF files
 
-
-- **GitHub repository**: <https://github.com/hiranp/log-redactor/>
-- **Documentation**: <https://github.com/hiranp/log-redactor/blob/main/docs/index.md>
-
-
+**GitHub repository**: <https://github.com/hiranp/log-redactor/>
+**Documentation**: <https://github.com/hiranp/log-redactor/blob/main/docs/index.md>
 
 ## Features
 
@@ -52,22 +51,31 @@ The redacted file is saved as `<original-filename>-redacted.<extension>`.
 ### Examples
 
 - **Redact a directory**:
+
   ```sh
   cargo run --release -- /path/to/directory
     ```
+
 - **Redact a file**:
+
   ```sh
   cargo run --release -- /path/to/file.txt (tar.gz, tgz, zip, pdf)
   ```
+
 - **Redact interactively**:
+
   ```sh
     cargo run --release -- /path/to/file.txt -i yes
     ```
+
 - **Redact a file with custom secrets and ignores**:
+
     ```sh
     cargo run --release -- /path/to/file.txt -s /path/to/secrets.csv -g /path/to/ignore.csv
     ```
+
 - **More help**:
+
   ```sh
   cargo run --release -- --help
   ```
@@ -143,12 +151,12 @@ In interactive mode, the script will ask you to confirm each redaction. You can 
 
 ## TODO
 
-- [ ] Complete rust implementation
-- [ ] Improve redaction of pdf files
+- [x] Complete rust implementation
 - [ ] Use third-party libraries to validate strings before redacting
   - [ ] Use [garde](https://docs.rs/garde/latest/garde/)
   - [ ] Use validators from [validators](https://docs.rs/validators/latest/validators/)
   - [ ] Use [phonenumbers](https://pypi.org/project/phonenumbers/) to validate phone numbers
+- [ ] Improve redaction of pdf files
 - [ ] Add support for incorporating custom patterns
 - [ ] Add support for incorporating ML models to redact data more accurately
 - [ ] Add support for redacting data in multiple files at once

@@ -65,6 +65,7 @@ pub struct Redactor {
     counter: HashMap<String, u32>,
     interactive: bool,
     phone_formats: Vec<String>,
+    redacted_mapping_file: String,
 }
 
 lazy_static! {
@@ -79,7 +80,12 @@ lazy_static! {
 }
 
 impl Redactor {
-    pub fn new(interactive: bool, secrets_file: &str, ignores_file: &str) -> Self {
+    pub fn new(
+        interactive: bool,
+        secrets_file: &str,
+        ignores_file: &str,
+        redacted_mapping_file: &str,
+    ) -> Self {
         let patterns = Self::init_patterns();
 
         let mut validators: HashMap<String, fn(&str) -> bool> = HashMap::new();
@@ -109,6 +115,7 @@ impl Redactor {
             counter: HashMap::new(),
             interactive,
             phone_formats,
+            redacted_mapping_file: redacted_mapping_file.to_string(),
         }
     }
 
@@ -183,9 +190,20 @@ impl Redactor {
             };
             self.unique_mapping
                 .insert(value.to_string(), mapped_value.clone());
+            self.save_mapping_to_file(value, &mapped_value);
             mapped_value
         } else {
             self.unique_mapping.get(value).unwrap().clone()
+        }
+    }
+
+    fn save_mapping_to_file(&self, original: &str, redacted: &str) {
+        if let Ok(mut file) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.redacted_mapping_file)
+        {
+            writeln!(file, "{},{}", original, redacted).unwrap();
         }
     }
 
