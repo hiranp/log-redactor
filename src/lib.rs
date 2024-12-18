@@ -125,7 +125,8 @@ impl Redactor {
 
         patterns.insert(
             "ipv4".to_string(),
-            Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}\b").unwrap(),
+            // Updated to be more specific about IPv4 addresses
+            Regex::new(r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b").unwrap(),
         );
         patterns.insert(
             "ipv6".to_string(),
@@ -133,7 +134,8 @@ impl Redactor {
         );
         patterns.insert(
             "phone".to_string(),
-            Regex::new(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b").unwrap(),
+            // Simplified pattern without lookahead
+            Regex::new(r"\b(?:\+?1[-. ]?)?\s*\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4}\b").unwrap(),
         );
         patterns.insert(
             "email".to_string(),
@@ -255,6 +257,21 @@ impl Redactor {
         }
     }
 
+    fn should_ignore_value(&self, value: &str, pattern_type: &str) -> bool {
+        // Special handling for phone numbers that might be timestamps
+        if pattern_type == "phone" {
+            // If it's all digits and length is 10 or 13 (typical for timestamps), ignore it
+            if value.chars().all(|c| c.is_ascii_digit()) {
+                let len = value.len();
+                if len == 10 || len == 13 {
+                    debug!("Ignoring likely timestamp: {}", value);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     fn redact_pattern(&mut self, line: &str, pattern_type: &str) -> String {
         if line.contains("redacted-") || line.contains("redacted_") {
             return line.to_string();
@@ -263,6 +280,13 @@ impl Redactor {
         println!("Redacting pattern type: {}", pattern_type); // Debug line
         let pattern = &self.patterns[pattern_type];
         let captures: Vec<_> = pattern.captures_iter(line).collect();
+
+        // Add debug logging
+        debug!(
+            "Pattern type: {}, Found matches: {}",
+            pattern_type,
+            captures.len()
+        );
 
         let ignore_set: HashSet<String> = self
             .config
@@ -295,6 +319,11 @@ impl Redactor {
             } else {
                 (pattern_type, cap.get(0).unwrap().as_str())
             };
+
+            // Add check for values to ignore
+            if self.should_ignore_value(value, pattern_type) {
+                continue;
+            }
 
             let should_redact = if secrets_set.contains(value) {
                 true
