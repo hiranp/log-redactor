@@ -94,6 +94,18 @@ impl RedactorConfig {
 
         Ok(config)
     }
+
+    pub fn has_ignore_pattern(&self, pattern_type: &str, value: &str) -> bool {
+        self.ignore_patterns
+            .get(pattern_type)
+            .map_or(false, |patterns| patterns.is_match(value))
+    }
+
+    pub fn has_secret_pattern(&self, pattern_type: &str, value: &str) -> bool {
+        self.secret_patterns
+            .get(pattern_type)
+            .map_or(false, |patterns| patterns.is_match(value))
+    }
 }
 
 pub struct Redactor {
@@ -309,10 +321,21 @@ impl Redactor {
         false
     }
 
+    #[allow(dead_code)]
     fn should_redact_value(&self, value: &str, pattern_type: &str) -> bool {
-        self.config.secret_patterns
-            .get(pattern_type)
-            .map_or(false, |patterns| patterns.is_match(value))
+        // Check if both secret and ignore patterns exist
+        let is_secret = self.config.has_secret_pattern(pattern_type, value);
+        let is_ignored = self.config.has_ignore_pattern(pattern_type, value);
+
+        if is_secret && is_ignored {
+            warn!(
+                "Precedence conflict: Value '{}' matches both secret and ignore patterns for type '{}'. Treating as secret.",
+                value, pattern_type
+            );
+        }
+
+        // Secrets take precedence over ignores
+        is_secret
     }
 
     fn redact_pattern(&mut self, line: &str, pattern_type: &str) -> String {
@@ -345,28 +368,39 @@ impl Redactor {
                 (pattern_type, cap.get(0).unwrap().as_str())
             };
 
-            // Pass pattern_type to should_ignore_value
+            // First check if the value matches any patterns
+            let is_secret = self.config.has_secret_pattern(pattern_type, value);
+            let is_ignored = self.config.has_ignore_pattern(pattern_type, value);
+
+            if is_secret && is_ignored {
+                println!(
+                    "Warning: Value '{}' matches both secret and ignore patterns. Treating as secret.",
+                    value
+                );
+            }
+
+            if is_secret {
+                let replacement = self.generate_unique_mapping(value, key_type);
+                redacted_line = redacted_line.replace(value, &replacement);
+                continue;
+            }
+
+            if is_ignored {
+                continue;
+            }
+
+            // Skip if value should be ignored based on format
             if self.should_ignore_value(value, pattern_type) {
                 continue;
             }
 
-            // For hostnames, implement additional validation
+            // For hostnames, implement additional validation only if not in secrets
             if pattern_type == "hostname" && !should_process_hostname(value) {
                 continue;
             }
 
-            let should_redact = if self.should_redact_value(value, pattern_type) {
-                true
-            } else if self.config.ignore_patterns
-                .get(pattern_type)
-                .map_or(false, |patterns| patterns.is_match(value))
-            {
-                false
-            } else {
-                validator_fn(value) && (!interactive || self.ask_user(value, key_type))
-            };
-
-            if should_redact {
+            // Finally do regular validation and interactive check
+            if validator_fn(value) && (!interactive || self.ask_user(value, key_type)) {
                 let replacement = self.generate_unique_mapping(value, key_type);
                 redacted_line = redacted_line.replace(value, &replacement);
             }
