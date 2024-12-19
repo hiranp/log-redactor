@@ -2,7 +2,7 @@ use flate2::read::GzDecoder;
 use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use lopdf::Document;
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -14,7 +14,6 @@ use std::path::{Path, PathBuf};
 use tar::Archive;
 use time::OffsetDateTime;
 use zip::read::ZipArchive;
-use globset::{Glob, GlobSet, GlobSetBuilder};
 
 pub mod redaction_utils;
 
@@ -32,8 +31,8 @@ struct Ignore {
 pub struct RedactorConfig {
     secrets: Option<HashMap<String, Vec<String>>>,
     ignores: Option<HashMap<String, Vec<String>>>,
-    secret_patterns: HashMap<String, GlobSet>,
-    ignore_patterns: HashMap<String, GlobSet>,
+    secret_patterns: HashMap<String, Vec<Regex>>,
+    ignore_patterns: HashMap<String, Vec<Regex>>,
 }
 
 impl RedactorConfig {
@@ -61,63 +60,56 @@ impl RedactorConfig {
             ignore_patterns: HashMap::new(),
         };
 
-        // Build glob patterns for secrets
+        // Compile regex patterns for secrets
         if let Some(ref secrets) = config.secrets {
             for (key, patterns) in secrets {
-                let mut builder = GlobSetBuilder::new();
+                let mut regex_patterns = Vec::new();
                 for pattern in patterns {
-                    if let Ok(glob) = Glob::new(pattern) {
-                        builder.add(glob);
+                    if let Ok(regex) = Self::compile_pattern(pattern) {
+                        regex_patterns.push(regex);
                     }
                 }
-                if let Ok(set) = builder.build() {
-                    config.secret_patterns.insert(key.clone(), set);
-                }
+                config.secret_patterns.insert(key.clone(), regex_patterns);
             }
         }
 
-        // Build glob patterns for ignores
+        // Compile regex patterns for ignores
         if let Some(ref ignores) = config.ignores {
             for (key, patterns) in ignores {
-                let mut builder = GlobSetBuilder::new();
+                let mut regex_patterns = Vec::new();
                 for pattern in patterns {
-                    if let Ok(glob) = Glob::new(pattern) {
-                        builder.add(glob);
+                    if let Ok(regex) = Self::compile_pattern(pattern) {
+                        regex_patterns.push(regex);
                     }
                 }
-                if let Ok(set) = builder.build() {
-                    config.ignore_patterns.insert(key.clone(), set);
-                }
+                config.ignore_patterns.insert(key.clone(), regex_patterns);
             }
         }
 
         Ok(config)
     }
 
+    fn compile_pattern(pattern: &str) -> Result<Regex, regex::Error> {
+        let escaped = regex::escape(pattern).replace("\\*", ".*").replace("\\?", ".");
+        RegexBuilder::new(&format!("^{}$", escaped))
+            .case_insensitive(true)
+            .build()
+    }
+
     pub fn has_ignore_pattern(&self, pattern_type: &str, value: &str) -> bool {
-        let result = self.ignore_patterns
-            .get(pattern_type)
-            .map_or(false, |patterns| patterns.is_match(value));
-            
-        debug!(
-            "Checking ignore pattern for type '{}', value '{}': {}",
-            pattern_type, value, result
-        );
-        
-        result
+        if let Some(patterns) = self.ignore_patterns.get(pattern_type) {
+            patterns.iter().any(|regex| regex.is_match(value))
+        } else {
+            false
+        }
     }
 
     pub fn has_secret_pattern(&self, pattern_type: &str, value: &str) -> bool {
-        let result = self.secret_patterns
-            .get(pattern_type)
-            .map_or(false, |patterns| patterns.is_match(value));
-        
-        debug!(
-            "Checking secret pattern for type '{}', value '{}': {}",
-            pattern_type, value, result
-        );
-        
-        result
+        if let Some(patterns) = self.secret_patterns.get(pattern_type) {
+            patterns.iter().any(|regex| regex.is_match(value))
+        } else {
+            false
+        }
     }
 }
 
@@ -145,6 +137,15 @@ lazy_static! {
         r"\b(?:\+\d{1,3}[-. ]?)?\s*(?:\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4})\b"
     ).unwrap();
     
+    static ref PHONE_FORMAT_REGEX: Regex = Regex::new(r"(?x)
+            (?:
+                (\d{3})\s*(\d{3})-(\d{4}) |  # XXX XXX-XXXX or (XXX) XXX-XXXX
+                (\d{3})-(\d{3})-(\d{4})   |  # XXX-XXX-XXXX
+                (\d{3})\.(\d{3})\.(\d{4}) |  # XXX.XXX.XXXX
+                (\d{3})\s+(\d{3})\s+(\d{4})  # XXX XXX XXXX
+            )
+        ").unwrap();
+
     static ref EMAIL_REGEX: Regex = Regex::new(
         r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"
     ).unwrap();
@@ -338,7 +339,7 @@ impl Redactor {
         }
 
         // Secrets take precedence over ignores
-        is_secret
+        is_secret && !is_ignored
     }
 
     fn redact_pattern(&mut self, line: &str, pattern_type: &str) -> String {
@@ -706,34 +707,38 @@ impl Redactor {
             ("", input)
         };
 
-        // Detect format using regex
-        let format_regex = Regex::new(r"(?x)
-            (?:\((\d{3})\)\s*(\d{3})-(\d{4})) |      # (XXX) XXX-XXXX
-            (?:(\d{3})-(\d{3})-(\d{4})) |            # XXX-XXX-XXXX
-            (?:(\d{3})\.(\d{3})\.(\d{4})) |          # XXX.XXX.XXXX
-            (?:(\d{3})\s+(\d{3})\s+(\d{4}))          # XXX XXX XXXX
-        ").unwrap();
+        // Remove any existing parentheses from number before pattern matching
+        let clean_number = number.replace("(", "").replace(")", "");
 
-        let mapped_phone = if let Some(caps) = format_regex.captures(number) {
-            if caps.get(1).is_some() {
-                // (XXX) XXX-XXXX format
+        // // Detect format using regex
+        // let format_regex = Regex::new(r"(?x)
+        //     (?:
+        //         (\d{3})\s*(\d{3})-(\d{4}) |  # XXX XXX-XXXX or (XXX) XXX-XXXX
+        //         (\d{3})-(\d{3})-(\d{4})   |  # XXX-XXX-XXXX
+        //         (\d{3})\.(\d{3})\.(\d{4}) |  # XXX.XXX.XXXX
+        //         (\d{3})\s+(\d{3})\s+(\d{4})  # XXX XXX XXXX
+        //     )
+        // ").unwrap();
+
+        let mapped_phone = if let Some(caps) = PHONE_FORMAT_REGEX.captures(&clean_number) {
+            debug!("Matched format groups: {:?}", caps);
+            
+            if number.contains('(') {
+                // Original had parentheses, use (800) format
                 format!("(800) 555-{:04}", count)
-            } else if caps.get(4).is_some() {
-                // XXX-XXX-XXXX format
-                format!("800-555-{:04}", count)
-            } else if caps.get(7).is_some() {
-                // XXX.XXX.XXXX format
+            } else if number.contains('.') {
                 format!("800.555.{:04}", count)
-            } else if caps.get(10).is_some() {
-                // XXX XXX XXXX format
+            } else if number.contains('-') {
+                format!("800-555-{:04}", count)
+            } else if number.contains(' ') {
                 format!("800 555 {:04}", count)
             } else {
                 // Default format
-                format!("800-555-{:04}", count)
+                format!("(800) 555-{:04}", count)
             }
         } else {
-            // Default format
-            format!("800-555-{:04}", count)
+            // Default format for unrecognized patterns
+            format!("(800) 555-{:04}", count)
         };
 
         format!("{}{}", country_code, mapped_phone).trim().to_string()

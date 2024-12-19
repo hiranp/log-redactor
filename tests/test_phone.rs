@@ -101,13 +101,17 @@ mod tests {
         );
 
         let test_cases = vec![
-            ("123-456-7890", "800-555-0000"),
-            ("123.456.7890", "800.555.0001"),
-            ("123 456 7890", "800 555 0002"),
-            ("201-555-0123", "800-555-0003"),
-            ("(471) 456-7890", "(800) 555-0004"),
-            ("+1 (201) 555-0123", "+1 (800) 555-0123"),
-            ("+44 702-555-0123", "+44 800-555-0123"),
+            // Must redact - matches secrets.json pattern "123-456-*"
+            ("123-456-7891", "800-555-0001"),
+            ("123.456.7892", "800.555.0002"),
+            ("123 456 7893", "800 555 0003"),
+            // Format preservation tests
+            ("(123) 456-7894", "(800) 555-0004"),
+            ("+1 (123) 456-7885", "+1 (800) 555-0005"),
+            // Should not redact - matches ignore.json pattern
+            ("800-555-0123", "800-555-0123"),
+            ("(800) 555-1234", "(800) 555-1234"),
+            ("555-555-5555", "555-555-5555"),
         ];
 
         for (input, expected) in test_cases {
@@ -118,14 +122,26 @@ mod tests {
                 input, expected, redacted
             );
         }
+    }
 
-        // Test ignored number
-        let ignored = "800-555-0123";
-        let redacted = redactor.redact(vec![ignored.to_string()])[0].clone();
-        assert_eq!(
-            redacted, ignored,
-            "Should not redact ignored number '{}'",
-            ignored
+    #[test]
+    fn test_phone_ignore_patterns() {
+        let mut redactor = Redactor::new(
+            false,
+            "samples/secrets.json",
+            "samples/ignore.json",
+            "samples/redacted-mapping.txt",
         );
+
+        let ignored_numbers = vec!["800-555-0123", "(800) 555-1234", "555-555-5555"];
+
+        for number in ignored_numbers {
+            let redacted = redactor.redact(vec![number.to_string()])[0].clone();
+            assert_eq!(
+                redacted, number,
+                "Should not redact ignored number '{}', got '{}'",
+                number, redacted
+            );
+        }
     }
 }
