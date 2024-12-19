@@ -291,7 +291,7 @@ impl Redactor {
         };
 
         data.entry(secret_type.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(value.to_string());
 
         let file = File::create(path).unwrap();
