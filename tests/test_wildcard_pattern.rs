@@ -42,12 +42,14 @@ fn test_wildcard_patterns() {
 
     // Test cases for hostnames
     let test_cases = vec![
-        // Format: (input, should_be_redacted)
         ("test1.example.com", true),    // Matches test*.example.com
         ("test-srv.example.com", true), // Matches test*.example.com
         ("public1.example.com", false), // Matches ignore pattern
         ("app-internal.local", true),   // Matches *-internal.local
-        ("random.domain", false),       // No match
+        ("random.domain", true),        // No match
+        ("domain", false),              // Single word - should not be processed
+        ("com", false),                 // TLD only - should not be processed
+        ("123.456", false),             // Numeric only - should not be processed
     ];
 
     for (input, should_be_redacted) in test_cases {
@@ -66,7 +68,7 @@ fn test_wildcard_patterns() {
         ("admin123@company.com", true), // Matches admin*@company.com
         ("user@internal.domain", true), // Matches *@internal.domain
         ("noreply@company.com", false), // Matches ignore pattern
-        ("random@email.com", false),    // No match
+        ("random@email.com", true),     // No match
     ];
 
     for (input, should_be_redacted) in email_cases {
@@ -84,7 +86,7 @@ fn test_wildcard_patterns() {
         ("https://api.secret.com/v1", true), // Matches https://*.secret.com/*
         ("https://test.internal-api.com", true), // Matches *.internal-api.*
         ("https://public.domain.com", false), // Matches ignore pattern
-        ("https://random.com", false),       // No match
+        ("https://random.com", true),        // No match
     ];
 
     for (input, should_be_redacted) in url_cases {

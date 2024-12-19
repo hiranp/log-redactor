@@ -309,6 +309,12 @@ impl Redactor {
         false
     }
 
+    fn should_redact_value(&self, value: &str, pattern_type: &str) -> bool {
+        self.config.secret_patterns
+            .get(pattern_type)
+            .map_or(false, |patterns| patterns.is_match(value))
+    }
+
     fn redact_pattern(&mut self, line: &str, pattern_type: &str) -> String {
         if line.contains("redacted-") || line.contains("redacted_") {
             return line.to_string();
@@ -344,11 +350,12 @@ impl Redactor {
                 continue;
             }
 
-            // First check if it matches any secret patterns
-            let should_redact = if self.config.secret_patterns
-                .get(pattern_type)
-                .map_or(false, |patterns| patterns.is_match(value))
-            {
+            // For hostnames, implement additional validation
+            if pattern_type == "hostname" && !should_process_hostname(value) {
+                continue;
+            }
+
+            let should_redact = if self.should_redact_value(value, pattern_type) {
                 true
             } else if self.config.ignore_patterns
                 .get(pattern_type)
@@ -356,7 +363,6 @@ impl Redactor {
             {
                 false
             } else {
-                // Only validate and ask user if no pattern matches
                 validator_fn(value) && (!interactive || self.ask_user(value, key_type))
             };
 
@@ -811,6 +817,10 @@ pub fn validate_hostname(hostname: &str) -> bool {
 // REFS: https://tools.ietf.org/html/rfc1123
 // A hostname is valid if the following condition are true:
 pub fn is_valid_hostname(hostname: &str) -> bool {
+    if !should_process_hostname(hostname) {
+        return false;
+    }
+
     fn is_valid_char(byte: u8) -> bool {
         byte.is_ascii_lowercase()
             || byte.is_ascii_uppercase()
@@ -871,4 +881,24 @@ pub fn validate_api(api: &str) -> bool {
         return false;
     }
     API_REGEX.is_match(api)
+}
+
+fn should_process_hostname(hostname: &str) -> bool {
+    // Skip if the hostname doesn't contain at least one dot
+    if !hostname.contains('.') {
+        return false;
+    }
+
+    // Skip common top-level domains if they appear alone
+    let common_tlds = ["com", "org", "net", "edu", "gov"];
+    if common_tlds.contains(&hostname.to_lowercase().as_str()) {
+        return false;
+    }
+
+    // Skip if it's just numbers and dots (like IP addresses)
+    if hostname.chars().all(|c| c.is_ascii_digit() || c == '.') {
+        return false;
+    }
+
+    true
 }

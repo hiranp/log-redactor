@@ -1,0 +1,34 @@
+{
+  "ipv4": [
+    "127.0.0.1",
+    "10.0.0.*",
+    "192.168.*.*"
+  ],
+  "email": [
+    "admin@example.com",
+    "*@internal.com",
+    "noreply@*"
+  ],
+  "phone": [
+    "555-555-5555",
+    "800-555-*",
+    "(800) 555-*"
+  ],
+  "hostname": [
+    "localhost",
+    "*.local",
+    "*-test.example.com",
+    "dev-*.internal"
+  ],
+  "url": [
+    "http://localhost",
+    "https://localhost:*",
+    "*.internal/*",
+    "http://127.0.0.1:*"
+  ],
+  "api": [
+    "apikey=ignorethisapikey",
+    "token=test_*",
+    "key=dev_*"
+  ]
+}
