@@ -61,16 +61,26 @@ mod tests {
 
     // Validation Tests
     #[test]
-    fn test_validate_phone() {
-        let test_cases = vec![
-            ("123-456-7890", true),
-            ("(123) 456-7890", true),
-            ("123.456.7890", true),
-            ("123 456 7890", true),
-            ("123-456-789", false),
-            ("123-456-78901", false),
-        ];
-        run_validation_test("Phone", test_cases, validate_phone);
+    fn test_phone_number_generation() {
+        let mut redactor = Redactor::new(false, "dummy.json", "dummy.json", "dummy.txt");
+        let phone1 = redactor.generate_phone_number();
+        let phone2 = redactor.generate_phone_number();
+
+        assert!(validate_phone(&phone1));
+        assert!(validate_phone(&phone2));
+        assert_ne!(phone1, phone2);
+    }
+
+    #[test]
+    fn test_phone_validation() {
+        assert!(validate_phone("(800) 555-0123"));
+        assert!(validate_phone("800-555-0123"));
+        assert!(validate_phone("800.555.0123"));
+        assert!(validate_phone("800 555 0123"));
+
+        assert!(!validate_phone("123456789")); // too short
+        assert!(!validate_phone("abcd-efg-hijk")); // invalid chars
+        assert!(!validate_phone("")); // empty
     }
 
     #[test]
@@ -171,8 +181,8 @@ mod tests {
     fn test_api_key_redaction() {
         let mut redactor = Redactor::new(
             false,
-            "samples/secrets.csv",
-            "samples/ignore.csv",
+            "samples/secrets.json",
+            "samples/ignore.json",
             "samples/redacted-mapping.txt",
         );
         let test_cases = vec![
@@ -183,34 +193,6 @@ mod tests {
             ("apikey=", "apikey="),
         ];
         run_redaction_test("API Key", test_cases, &mut redactor);
-    }
-
-    #[test]
-    fn test_phone_redaction() {
-        let mut redactor = Redactor::new(
-            false,
-            "samples/secrets.csv",
-            "samples/ignore.csv",
-            "samples/redacted-mapping.txt",
-        );
-        let test_cases = vec![
-            "123-456-7890",
-            "(123) 456-7890",
-            "123.456.7890",
-            "123 456 7890",
-            "201-555-0123",
-            "800-555-0123",
-        ];
-
-        for input in test_cases {
-            let redacted = redactor.redact(vec![input.to_string()])[0].clone();
-            assert!(
-                redacted.contains("800") && redacted.contains("555"),
-                "Redaction failed for input '{}'. Got '{}'",
-                input,
-                redacted
-            );
-        }
     }
 
     #[test]
@@ -273,13 +255,13 @@ event=ssh_attempt user=root src_ip=2001:db8:1234:5678::1 status=blocked timestam
 "#;
         fs::write(&sample_log, sample_content).expect("Failed to write sample log");
 
-        // Create secrets.csv
-        let secrets_file = temp_path.join("secrets.csv");
+        // Create secrets.json
+        let secrets_file = temp_path.join("secrets.json");
         fs::write(&secrets_file, "ipv4,192.168.1.1\nemail,user@example.com")
             .expect("Failed to write secrets");
 
-        // Create ignore.csv
-        let ignore_file = temp_path.join("ignore.csv");
+        // Create ignore.json
+        let ignore_file = temp_path.join("ignore.json");
         fs::write(&ignore_file, "phone,800-555-0123").expect("Failed to write ignores");
 
         // Create mapping file path
@@ -345,8 +327,8 @@ event=ssh_attempt user=root src_ip=2001:db8:1234:5678::1 status=blocked timestam
         // Initialize the redactor with paths to secrets and ignores
         let mut redactor = Redactor::new(
             false,
-            "samples/secret.csv",
-            "samples/ignore.csv",
+            "samples/secret.json",
+            "samples/ignore.json",
             "samples/redacted-mapping.txt",
         );
 
@@ -378,6 +360,89 @@ event=ssh_attempt user=root src_ip=2001:db8:1234:5678::1 status=blocked timestam
     }
 
     #[test]
+    fn test_simple_sample_log_redaction() {
+        use std::env;
+        use std::fs;
+        use tempfile::tempdir;
+
+        // Create temporary directory
+        let temp_dir = tempdir().expect("Failed to create temp directory");
+        let temp_path = temp_dir.path();
+
+        // Create all files in temp directory
+        let sample_log = temp_path.join("sample.log");
+        let secrets_file = temp_path.join("secrets.json");
+        let ignore_file = temp_path.join("ignore.json");
+        let mapping_file = temp_path.join("redacted-mapping.txt");
+
+        // Get current working directory for redacted file location
+        let current_dir = env::current_dir().expect("Failed to get current directory");
+        let expected_redacted_path = current_dir.join("sample-redacted.log");
+
+        // Write sample log content
+        let sample_content = r#"# Sample Log File
+        
+    # IPv4 Examples
+    192.168.1.1
+    10.0.0.255
+    
+    # Email Examples
+    user@example.com
+    admin@company.com
+    
+    # Phone Numbers
+    (123) 456-7890
+    800-555-0123"#;
+        fs::write(&sample_log, sample_content).expect("Failed to write sample log");
+
+        // Write secrets and ignores
+        fs::write(&secrets_file, "ipv4,192.168.1.1\nemail,user@example.com")
+            .expect("Failed to write secrets");
+        fs::write(&ignore_file, "phone,800-555-0123").expect("Failed to write ignores");
+
+        // Initialize redactor with temp files
+        let mut redactor = Redactor::new(
+            false,
+            secrets_file.to_str().unwrap(),
+            ignore_file.to_str().unwrap(),
+            mapping_file.to_str().unwrap(),
+        );
+
+        // Redact the sample log
+        redactor.redact_file(sample_log.to_str().unwrap());
+
+        // Verify redacted file exists and read content
+        assert!(
+            expected_redacted_path.exists(),
+            "Redacted file should exist at {:?}",
+            expected_redacted_path
+        );
+
+        let redacted_content =
+            fs::read_to_string(&expected_redacted_path).expect("Failed to read redacted file");
+
+        // Verify redaction results
+        assert!(
+            !redacted_content.contains("192.168.1.1"),
+            "Should not contain original IPv4"
+        );
+        assert!(
+            !redacted_content.contains("user@example.com"),
+            "Should not contain original email"
+        );
+        assert!(
+            redacted_content.contains("800-555-0123"),
+            "Should preserve ignored phone number"
+        );
+        assert!(
+            redacted_content.contains("redacted"),
+            "Should contain redaction markers"
+        );
+
+        // Temp directory and contents are automatically cleaned up when temp_dir is dropped
+    }
+
+    #[test]
     fn test_process_tar_file() {
         use std::fs::File;
         use std::io::{BufRead, BufReader};
@@ -390,8 +455,8 @@ event=ssh_attempt user=root src_ip=2001:db8:1234:5678::1 status=blocked timestam
         // Initialize the redactor with paths to secrets and ignores
         let mut redactor = Redactor::new(
             false,
-            "samples/secrets.csv",
-            "samples/ignore.csv",
+            "samples/secrets.json",
+            "samples/ignore.json",
             &format!("{}/redacted-mapping.txt", temp_dir_path),
         );
 

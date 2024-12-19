@@ -2,7 +2,6 @@ use flate2::read::GzDecoder;
 use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use lopdf::Document;
-use rand::seq::SliceRandom;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::json;
@@ -130,7 +129,6 @@ pub struct Redactor {
     ip_counter: u32,
     counter: HashMap<String, u32>,
     interactive: bool,
-    phone_formats: Vec<String>,
     redacted_mapping_file: String,
 }
 
@@ -144,7 +142,7 @@ lazy_static! {
         .unwrap();
     
     static ref PHONE_REGEX: Regex = Regex::new(
-        r"\b(?:\+?1[-. ]?)?\s*\(?\d{3}\)?[-. ]\d{3}[-. ]\d{4}\b"
+        r"\b(?:\+\d{1,3}[-. ]?)?\s*(?:\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4})\b"
     ).unwrap();
     
     static ref EMAIL_REGEX: Regex = Regex::new(
@@ -184,13 +182,6 @@ impl Redactor {
 
         let config = RedactorConfig::from_files(secrets_file, ignores_file).unwrap_or_default();
 
-        let phone_formats = vec![
-            "({}) {}-{:04}".to_string(),
-            "{}-{}-{:04}".to_string(),
-            "{}.{}.{}".to_string(),
-            "{} {} {}".to_string(),
-        ];
-
         Redactor {
             patterns,
             validators,
@@ -199,7 +190,6 @@ impl Redactor {
             ip_counter: 1,
             counter: HashMap::new(),
             interactive,
-            phone_formats,
             redacted_mapping_file: redacted_mapping_file.to_string(),
         }
     }
@@ -233,7 +223,7 @@ impl Redactor {
                     self.ip_counter += 1;
                     mapped_ip.to_string()
                 }
-                "phone" => self.generate_phone_number(),
+                "phone" => self.generate_phone_number(value),  // Pass the input value
                 "hostname" => self.generate_hostname(),
                 "url" => self.generate_url(),
                 "email" => self.generate_email(),
@@ -698,20 +688,55 @@ impl Redactor {
         Ok(())
     }
 
-    // Generates a new phone number in 800-555-xxxx range
-    fn generate_phone_number(&mut self) -> String {
-        let format = self.phone_formats.choose(&mut rand::thread_rng()).unwrap();
+    // Generates a new phone number in 800-555-xxxx range, matching the format of the input
+    pub fn generate_phone_number(&mut self, input: &str) -> String {
         let count = self.counter.entry("phone".to_string()).or_insert(0);
-        println!("Generating phone number with count: {}", count);
-        let mapped_phone = match format.as_str() {
-            "({}) {}-{:04}" => format!("(800) 555-{:04}", count),
-            "{}-{}-{:04}" => format!("800-555-{:04}", count),
-            "{}.{}.{}" => format!("800.555.{:04}", count),
-            "{} {} {}" => format!("800 555 {:04}", count),
-            _ => format!("800 555 {:04}", count),
+        *count += 1;
+        
+        debug!("Generating phone number for input '{}' with count: {}", input, count);
+
+        // Extract country code if present
+        let (country_code, number) = if input.starts_with('+') {
+            if let Some(space_pos) = input.find(' ') {
+                (&input[..=space_pos], &input[space_pos + 1..])
+            } else {
+                ("+", input)
+            }
+        } else {
+            ("", input)
         };
-        *self.counter.get_mut("phone").unwrap() += 1;
-        mapped_phone
+
+        // Detect format using regex
+        let format_regex = Regex::new(r"(?x)
+            (?:\((\d{3})\)\s*(\d{3})-(\d{4})) |      # (XXX) XXX-XXXX
+            (?:(\d{3})-(\d{3})-(\d{4})) |            # XXX-XXX-XXXX
+            (?:(\d{3})\.(\d{3})\.(\d{4})) |          # XXX.XXX.XXXX
+            (?:(\d{3})\s+(\d{3})\s+(\d{4}))          # XXX XXX XXXX
+        ").unwrap();
+
+        let mapped_phone = if let Some(caps) = format_regex.captures(number) {
+            if caps.get(1).is_some() {
+                // (XXX) XXX-XXXX format
+                format!("(800) 555-{:04}", count)
+            } else if caps.get(4).is_some() {
+                // XXX-XXX-XXXX format
+                format!("800-555-{:04}", count)
+            } else if caps.get(7).is_some() {
+                // XXX.XXX.XXXX format
+                format!("800.555.{:04}", count)
+            } else if caps.get(10).is_some() {
+                // XXX XXX XXXX format
+                format!("800 555 {:04}", count)
+            } else {
+                // Default format
+                format!("800-555-{:04}", count)
+            }
+        } else {
+            // Default format
+            format!("800-555-{:04}", count)
+        };
+
+        format!("{}{}", country_code, mapped_phone).trim().to_string()
     }
 
     fn generate_hostname(&mut self) -> String {
@@ -921,6 +946,16 @@ fn generate_ipv6_address(counter: u32) -> Ipv6Addr {
 
 // Validates formats: XXX-XXX-XXXX, (XXX) XXX-XXXX, XXX.XXX.XXXX, XXX XXX XXXX
 pub fn validate_phone(phone: &str) -> bool {
+    if phone.is_empty() {
+        return false;
+    }
+    
+    // Check length with only digits
+    let digits: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.len() != 10 {
+        return false;
+    }
+    
     PHONE_REGEX.is_match(phone)
 }
 
