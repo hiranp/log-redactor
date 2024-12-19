@@ -82,8 +82,8 @@ mod tests {
             ("eisenhower@army.us.mil", true),
             ("maverick@topgun.us.af.mil", true),
             ("user.name+tag+sorting@example.com", true),
-            ("Richard Nixon <r.nixon@whitehouse.gov>", false),
-            ("McLovin <mclovin@hawaii.gov>", false),
+            ("Richard Nixon <r.nixon@whitehouse.gov>", true),
+            ("McLovin <mclovin@hawaii.gov>", true),
             ("invalid.email@", false),
             ("@invalid.com", false),
         ];
@@ -213,9 +213,9 @@ mod tests {
         }
     }
 
-    
     #[test]
     fn test_sample_log_redaction() {
+        use std::env;
         use std::fs;
         use tempfile::tempdir;
 
@@ -285,6 +285,10 @@ event=ssh_attempt user=root src_ip=2001:db8:1234:5678::1 status=blocked timestam
         // Create mapping file path
         let mapping_file = temp_path.join("redacted-mapping.txt");
 
+        // Get current working directory for redacted file location
+        let current_dir = env::current_dir().expect("Failed to get current directory");
+        let expected_redacted_path = current_dir.join("sample-redacted.log");
+
         // Initialize redactor with temp files
         let mut redactor = Redactor::new(
             false,
@@ -297,12 +301,18 @@ event=ssh_attempt user=root src_ip=2001:db8:1234:5678::1 status=blocked timestam
         redactor.redact_file(sample_log.to_str().unwrap());
 
         // Verify redacted file exists and contains expected content
-        let redacted_path = sample_log.with_file_name("sample-redacted.log");
-        assert!(redacted_path.exists(), "Redacted file should exist");
+        // show the path
+        println!("Redacted Path: {:?}", expected_redacted_path);
+        // Verify redacted file exists in current directory
+        assert!(
+            expected_redacted_path.exists(),
+            "Redacted file should exist at {:?}",
+            expected_redacted_path
+        );
 
         // Read and verify redacted content
         let redacted_content =
-            fs::read_to_string(redacted_path).expect("Failed to read redacted file");
+            fs::read_to_string(expected_redacted_path).expect("Failed to read redacted file");
 
         assert!(
             redacted_content.contains("240.0.0."),

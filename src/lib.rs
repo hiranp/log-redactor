@@ -96,15 +96,29 @@ impl RedactorConfig {
     }
 
     pub fn has_ignore_pattern(&self, pattern_type: &str, value: &str) -> bool {
-        self.ignore_patterns
+        let result = self.ignore_patterns
             .get(pattern_type)
-            .map_or(false, |patterns| patterns.is_match(value))
+            .map_or(false, |patterns| patterns.is_match(value));
+            
+        debug!(
+            "Checking ignore pattern for type '{}', value '{}': {}",
+            pattern_type, value, result
+        );
+        
+        result
     }
 
     pub fn has_secret_pattern(&self, pattern_type: &str, value: &str) -> bool {
-        self.secret_patterns
+        let result = self.secret_patterns
             .get(pattern_type)
-            .map_or(false, |patterns| patterns.is_match(value))
+            .map_or(false, |patterns| patterns.is_match(value));
+        
+        debug!(
+            "Checking secret pattern for type '{}', value '{}': {}",
+            pattern_type, value, result
+        );
+        
+        result
     }
 }
 
@@ -321,7 +335,6 @@ impl Redactor {
         false
     }
 
-    #[allow(dead_code)]
     fn should_redact_value(&self, value: &str, pattern_type: &str) -> bool {
         // Check if both secret and ignore patterns exist
         let is_secret = self.config.has_secret_pattern(pattern_type, value);
@@ -340,14 +353,14 @@ impl Redactor {
 
     fn redact_pattern(&mut self, line: &str, pattern_type: &str) -> String {
         if line.contains("redacted-") || line.contains("redacted_") {
+            debug!("Skipping already redacted line: {}", line);
             return line.to_string();
         }
 
-        println!("Redacting pattern type: {}", pattern_type); // Debug line
+        debug!("Redacting pattern type: {} for line: {}", pattern_type, line);
         let pattern = &self.patterns[pattern_type];
         let captures: Vec<_> = pattern.captures_iter(line).collect();
 
-        // Add debug logging
         debug!(
             "Pattern type: {}, Found matches: {}",
             pattern_type,
@@ -361,51 +374,60 @@ impl Redactor {
 
         for cap in captures {
             let (key_type, value) = if pattern_type == "api" {
-                // Extract the actual key type from the match
                 let key_type = cap.get(1).map_or("api", |m| m.as_str());
                 (key_type, cap.get(0).unwrap().as_str())
             } else {
                 (pattern_type, cap.get(0).unwrap().as_str())
             };
 
-            // First check if the value matches any patterns
-            let is_secret = self.config.has_secret_pattern(pattern_type, value);
-            let is_ignored = self.config.has_ignore_pattern(pattern_type, value);
-
-            if is_secret && is_ignored {
-                println!(
-                    "Warning: Value '{}' matches both secret and ignore patterns. Treating as secret.",
-                    value
-                );
-            }
-
-            if is_secret {
-                let replacement = self.generate_unique_mapping(value, key_type);
-                redacted_line = redacted_line.replace(value, &replacement);
-                continue;
-            }
-
-            if is_ignored {
-                continue;
-            }
+            debug!("Processing match: {} of type: {}", value, key_type);
 
             // Skip if value should be ignored based on format
             if self.should_ignore_value(value, pattern_type) {
+                debug!("Ignoring value due to format: {}", value);
                 continue;
             }
 
-            // For hostnames, implement additional validation only if not in secrets
-            if pattern_type == "hostname" && !should_process_hostname(value) {
-                continue;
-            }
+            // Check if the value should be redacted based on patterns
+            let should_redact = self.should_redact_value(value, pattern_type);
+            debug!(
+                "Should redact '{}' based on patterns? {}",
+                value, should_redact
+            );
 
-            // Finally do regular validation and interactive check
-            if validator_fn(value) && (!interactive || self.ask_user(value, key_type)) {
+            if should_redact {
                 let replacement = self.generate_unique_mapping(value, key_type);
+                debug!("Replacing '{}' with '{}'", value, replacement);
                 redacted_line = redacted_line.replace(value, &replacement);
+                continue;
+            }
+
+            // For hostnames, implement additional validation
+            if pattern_type == "hostname" {
+                let should_process = should_process_hostname(value);
+                debug!(
+                    "Should process hostname '{}'? {}",
+                    value, should_process
+                );
+                if !should_process {
+                    continue;
+                }
+            }
+
+            // Validate and check interactive mode
+            if validator_fn(value) {
+                debug!("Value '{}' passed validation", value);
+                if !interactive || self.ask_user(value, key_type) {
+                    let replacement = self.generate_unique_mapping(value, key_type);
+                    debug!("Replacing '{}' with '{}'", value, replacement);
+                    redacted_line = redacted_line.replace(value, &replacement);
+                }
+            } else {
+                debug!("Value '{}' failed validation", value);
             }
         }
 
+        debug!("Final redacted line: {}", redacted_line);
         redacted_line
     }
 

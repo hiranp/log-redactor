@@ -159,6 +159,9 @@ For email addresses, the script uses `redacted.user@example.com` as the redacted
 
 The script reads from `secrets.json` and `ignores.json` to manage sensitive information that should be redacted or ignored during the redaction process.
 
+**Note**:
+Value in `secrets.json` take precedence over values `ignores.json` during redaction.
+
 #### `secrets.json`
 
 This file contains patterns of sensitive information that should always be redacted. Each line in the file specifies a type of sensitive information (e.g., `ipv4`, `email`, etc.) and the corresponding value to be redacted.
