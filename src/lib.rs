@@ -33,6 +33,8 @@ pub struct RedactorConfig {
     ignores: Option<HashMap<String, Vec<String>>>,
     secret_patterns: HashMap<String, Vec<Regex>>,
     ignore_patterns: HashMap<String, Vec<Regex>>,
+    secret_exact_values: HashMap<String, Vec<String>>,  // New field for exact secrets
+    ignore_exact_values: HashMap<String, Vec<String>>,  // New field for exact ignores
 }
 
 impl RedactorConfig {
@@ -58,45 +60,110 @@ impl RedactorConfig {
             ignores,
             secret_patterns: HashMap::new(),
             ignore_patterns: HashMap::new(),
+            secret_exact_values: HashMap::new(),  // Initialize new field
+            ignore_exact_values: HashMap::new(),  // Initialize new field
         };
 
-        // Compile regex patterns for secrets
+        // Compile regex patterns and collect exact values for secrets
         if let Some(ref secrets) = config.secrets {
             for (key, patterns) in secrets {
                 let mut regex_patterns = Vec::new();
+                let mut exact_values = Vec::new();
                 for pattern in patterns {
-                    if let Ok(regex) = Self::compile_pattern(pattern) {
-                        regex_patterns.push(regex);
+                    if Self::is_wildcard_pattern(pattern) {
+                        if let Ok(regex) = Self::compile_pattern(pattern) {
+                            regex_patterns.push(regex);
+                        }
+                    } else {
+                        exact_values.push(pattern.clone());
                     }
                 }
                 config.secret_patterns.insert(key.clone(), regex_patterns);
+                config.secret_exact_values.insert(key.clone(), exact_values);
             }
         }
 
-        // Compile regex patterns for ignores
+        // Compile regex patterns and collect exact values for ignores
         if let Some(ref ignores) = config.ignores {
             for (key, patterns) in ignores {
                 let mut regex_patterns = Vec::new();
+                let mut exact_values = Vec::new();
                 for pattern in patterns {
-                    if let Ok(regex) = Self::compile_pattern(pattern) {
-                        regex_patterns.push(regex);
+                    if Self::is_wildcard_pattern(pattern) {
+                        if let Ok(regex) = Self::compile_pattern(pattern) {
+                            regex_patterns.push(regex);
+                        }
+                    } else {
+                        exact_values.push(pattern.clone());
                     }
                 }
                 config.ignore_patterns.insert(key.clone(), regex_patterns);
+                config.ignore_exact_values.insert(key.clone(), exact_values);
             }
         }
 
         Ok(config)
     }
 
+    // Helper function to determine if a pattern is a wildcard pattern
+    fn is_wildcard_pattern(pattern: &str) -> bool {
+        pattern.contains('*') || pattern.contains('?') || pattern.contains('[')
+    }
+
     fn compile_pattern(pattern: &str) -> Result<Regex, regex::Error> {
-        let escaped = regex::escape(pattern).replace("\\*", ".*").replace("\\?", ".");
+        let mut escaped = String::new();
+        let mut chars = pattern.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            match ch {
+                '*' => {
+                    if pattern.contains('-') || pattern.contains('.') || pattern.contains(' ') {
+                        // For phone numbers with separators, match remaining digits
+                        escaped.push_str(r"\d+");
+                    } else {
+                        escaped.push_str(".*");
+                    }
+                }
+                '?' => escaped.push('.'),
+                '[' => {
+                    escaped.push('[');
+                    while let Some(&next_ch) = chars.peek() {
+                        escaped.push(next_ch);
+                        chars.next();
+                        if next_ch == ']' {
+                            break;
+                        }
+                    }
+                }
+                '\\' => {
+                    escaped.push('\\');
+                    if let Some(&next_ch) = chars.peek() {
+                        escaped.push(next_ch);
+                        chars.next();
+                    }
+                }
+                // Escape special regex characters in phone numbers
+                '.' | '-' | '(' | ')' | ' ' => {
+                    escaped.push('\\');
+                    escaped.push(ch);
+                }
+                _ => escaped.push_str(&regex::escape(&ch.to_string())),
+            }
+        }
+
         RegexBuilder::new(&format!("^{}$", escaped))
             .case_insensitive(true)
             .build()
     }
 
     pub fn has_ignore_pattern(&self, pattern_type: &str, value: &str) -> bool {
+        // Check exact matches first
+        if let Some(values) = self.ignore_exact_values.get(pattern_type) {
+            if values.contains(&value.to_string()) {
+                return true;
+            }
+        }
+        // Then check regex patterns
         if let Some(patterns) = self.ignore_patterns.get(pattern_type) {
             patterns.iter().any(|regex| regex.is_match(value))
         } else {
@@ -105,6 +172,13 @@ impl RedactorConfig {
     }
 
     pub fn has_secret_pattern(&self, pattern_type: &str, value: &str) -> bool {
+        // Check exact matches first
+        if let Some(values) = self.secret_exact_values.get(pattern_type) {
+            if values.contains(&value.to_string()) {
+                return true;
+            }
+        }
+        // Then check regex patterns
         if let Some(patterns) = self.secret_patterns.get(pattern_type) {
             patterns.iter().any(|regex| regex.is_match(value))
         } else {
@@ -326,20 +400,40 @@ impl Redactor {
         false
     }
 
+    #[allow(dead_code)]
     fn should_redact_value(&self, value: &str, pattern_type: &str) -> bool {
-        // Check if both secret and ignore patterns exist
         let is_secret = self.config.has_secret_pattern(pattern_type, value);
         let is_ignored = self.config.has_ignore_pattern(pattern_type, value);
 
+        // First check if value matches both patterns
         if is_secret && is_ignored {
             warn!(
-                "Precedence conflict: Value '{}' matches both secret and ignore patterns for type '{}'. Treating as secret.",
+                "Precedence conflict: Value '{}' matches both secret and ignore patterns for type '{}'. Using secret pattern.",
                 value, pattern_type
             );
+            return true; // Secret takes precedence
         }
 
-        // Secrets take precedence over ignores
-        is_secret && !is_ignored
+        // Then check ignore patterns
+        if is_ignored {
+            debug!(
+                "Value '{}' matches ignore pattern for type '{}'",
+                value, pattern_type
+            );
+            return false; // Don't redact ignored values
+        }
+
+        // Finally check secret patterns
+        if is_secret {
+            debug!(
+                "Value '{}' matches secret pattern for type '{}'",
+                value, pattern_type
+            );
+            return true; // Redact secret values
+        }
+
+        // No pattern matches
+        false
     }
 
     fn redact_pattern(&mut self, line: &str, pattern_type: &str) -> String {
@@ -348,7 +442,8 @@ impl Redactor {
             return line.to_string();
         }
 
-        debug!("Redacting pattern type: {} for line: {}", pattern_type, line);
+        println!("Redacting pattern type: {} for line: {}", pattern_type, line);
+
         let pattern = &self.patterns[pattern_type];
         let captures: Vec<_> = pattern.captures_iter(line).collect();
 
@@ -359,8 +454,6 @@ impl Redactor {
         );
         
         let validator_fn = self.validators[pattern_type];
-        let interactive = self.interactive;
-
         let mut redacted_line = line.to_string();
 
         for cap in captures {
@@ -373,48 +466,48 @@ impl Redactor {
 
             debug!("Processing match: {} of type: {}", value, key_type);
 
-            // Skip if value should be ignored based on format
+            // 1. Skip if value should be ignored based on format
             if self.should_ignore_value(value, pattern_type) {
                 debug!("Ignoring value due to format: {}", value);
                 continue;
             }
 
-            // Check if the value should be redacted based on patterns
-            let should_redact = self.should_redact_value(value, pattern_type);
-            debug!(
-                "Should redact '{}' based on patterns? {}",
-                value, should_redact
-            );
+            // 2. First check core validation rules
+            if !validator_fn(value) {
+                debug!("Value '{}' failed validation", value);
+                continue;
+            }
 
-            if should_redact {
+            // 3. Check for secrets and ignore patterns, including exact matches
+            let is_secret = self.config.has_secret_pattern(pattern_type, value);
+            let is_ignored = self.config.has_ignore_pattern(pattern_type, value);
+
+            // 4. Secret takes precedence if found in both
+            if is_secret && is_ignored {
+                debug!("Value '{}' found in both secrets and ignore lists, using secret pattern", value);
                 let replacement = self.generate_unique_mapping(value, key_type);
-                debug!("Replacing '{}' with '{}'", value, replacement);
                 redacted_line = redacted_line.replace(value, &replacement);
                 continue;
             }
 
-            // For hostnames, implement additional validation
-            if pattern_type == "hostname" {
-                let should_process = should_process_hostname(value);
-                debug!(
-                    "Should process hostname '{}'? {}",
-                    value, should_process
-                );
-                if !should_process {
-                    continue;
-                }
+            // 5. Check secrets after ignore
+            if is_secret {
+                debug!("Value '{}' matches secret pattern", value);
+                let replacement = self.generate_unique_mapping(value, key_type);
+                redacted_line = redacted_line.replace(value, &replacement);
+                continue;
             }
 
-            // Validate and check interactive mode
-            if validator_fn(value) {
-                debug!("Value '{}' passed validation", value);
-                if !interactive || self.ask_user(value, key_type) {
-                    let replacement = self.generate_unique_mapping(value, key_type);
-                    debug!("Replacing '{}' with '{}'", value, replacement);
-                    redacted_line = redacted_line.replace(value, &replacement);
-                }
-            } else {
-                debug!("Value '{}' failed validation", value);
+            // 6. Skip if explicitly ignored
+            if is_ignored {
+                debug!("Value '{}' matches ignore pattern, skipping", value);
+                continue;
+            }
+
+            // 7. If interactive mode is enabled, ask user
+            if self.interactive && self.ask_user(value, key_type) {
+                let replacement = self.generate_unique_mapping(value, key_type);
+                redacted_line = redacted_line.replace(value, &replacement);
             }
         }
 
@@ -423,6 +516,7 @@ impl Redactor {
     }
 
     pub fn redact(&mut self, lines: Vec<String>) -> Vec<String> {
+        let _ = env_logger::builder().is_test(true).try_init();
         let pattern_keys: Vec<String> = self.patterns.keys().cloned().collect();
         lines
             .into_iter()
