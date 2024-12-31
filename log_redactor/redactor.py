@@ -1,6 +1,5 @@
 import argparse
 import ipaddress
-import json
 import os
 import pathlib
 import re
@@ -33,7 +32,7 @@ REDACTED_EMAIL_BASE = "redacted.user"
 REDACTED_EMAIL_DOMAIN = "@example.com"
 REDACTED_PHONE_BASE = "(800) 555-01"
 REDACTED_PHONE_RANGE_START = 0
-REDACTED_PHONE_RANGE_END = 99
+REDACTED_PHONE_RANGE_END = 999
 REDACTED_HOST_BASE = "redacted_host"
 REDACTED_URL_BASE = "redacted.url"
 REDACTED_API_KEY_BASE = "redacted_api_key"
@@ -77,27 +76,71 @@ class Redactor:
         }
         self.ipv4_generator = IPv4Generator()
         self.ipv6_generator = IPv6Generator()
-        # self.email_counter = 1
-        # self.phone_counter = REDACTED_PHONE_RANGE_START
-        # self.hostname_counter = 1
-        # self.counter = {key: 1 for key in self.PATTERNS.keys()}
 
     def _load_config(self, config_type: str) -> dict[str, list[str]]:
-        """Load configuration from either TOML or CSV file."""
-        # Try TOML first
-        toml_file = f"{config_type}.toml"
-        if os.path.exists(toml_file):
-            try:
-                return rtoml.load(open(toml_file))
-            except Exception as e:
-                print(f"Error reading TOML file {toml_file}: {e}")
+        """Load configuration from TOML file in samples directory."""
+        config_path = os.path.join("samples", f"{config_type}.toml")
+        if not os.path.exists(config_path):
+            print(f"Warning: Configuration file {config_path} not found")
+            return {key: [] for key in self.PATTERNS}
 
-        # Fall back to CSV
-        return self._load_lists(f"{config_type}.csv")
+        try:
+            config = rtoml.load(open(config_path))
+            return config
+        except Exception as e:
+            print(f"Error reading TOML file {config_path}: {e}")
+            return {key: [] for key in self.PATTERNS}
+
+    def _matches_pattern(self, value: str, pattern: str) -> bool:
+        """Check if value matches a pattern, supporting wildcards."""
+        # Convert wildcard pattern to regex
+        regex_pattern = pattern.replace(".", "\\.").replace("*", ".*")
+        return bool(re.match(f"^{regex_pattern}$", value))
+
+    def _matches_any_pattern(self, value: str, pattern_type: str, patterns: dict) -> bool:
+        """Check if value matches any pattern in the given config."""
+        if pattern_type not in patterns:
+            return False
+        return any(self._matches_pattern(value, pattern)
+                  for pattern in patterns[pattern_type]["patterns"])
+
+    def should_redact_value(self, value: str, pattern_type: str) -> bool:
+        """
+        Determine if a value should be redacted based on validation rules and patterns.
+
+        Returns:
+            bool: True if the value should be redacted, False otherwise
+        """
+        # First check if value is valid according to core validation rules
+        validator = self.VALIDATORS.get(pattern_type)
+        if validator and not validator(value):
+            return False
+
+        # Check if value appears in both lists
+        is_secret = self._matches_any_pattern(value, pattern_type, self.secrets)
+        is_ignored = self._matches_any_pattern(value, pattern_type, self.ignores)
+
+        if is_secret and is_ignored:
+            print(f"Warning: {value} matches both secret and ignore patterns. Using secret pattern.")
+            return True
+
+        # Check if value appears in ignore list
+        if is_ignored:
+            return False
+
+        # Check if value appears in secrets list
+        if is_secret:
+            return True
+
+        # If in interactive mode and no patterns matched, ask user
+        if self.interactive:
+            return self._ask_user(value, pattern_type)
+
+        return False
 
     def _load_lists(self, filename: str) -> dict[str, list[str]]:
         """Load secrets or ignore lists from a file."""
-        lists = {key: [] for key in self.PATTERNS.keys()}
+        lists = {key: [] for key in self.PATTERNS}
         try:
             with open(filename) as f:
                 for line in f:
@@ -114,10 +157,20 @@ class Redactor:
                 f.write("\n")
             f.write(f"{secret_type},{value}")
 
-    def save_mappings(self, filename: str):
-        """Save unique mappings to a file."""
-        with open(filename, "w") as f:
-            json.dump(self.unique_mapping, f, indent=4)
+    # def save_mappings(self, filename: str):
+    #     """Save unique mappings to a file."""
+    #     with open(filename, "w") as f:
+    #         json.dump(self.unique_mapping, f, indent=4)
+
+    def save_mapping(mapping, file_path):
+        """
+        Save the mapping to a .toml file.
+
+        :param mapping: Dictionary to save.
+        :param file_path: Path to the .toml file.
+        """
+        with open(file_path, 'w') as toml_file:
+            rtoml.dump(mapping, toml_file)
 
     def _ask_user(self, value: str, secret_type: str) -> bool:
         """Prompt the user to decide whether to redact a value."""
@@ -212,21 +265,21 @@ class Redactor:
     def _generate_unique_mapping(self, value: str, secret_type: str) -> str:
             """Generate a unique mapping for redacted values."""
             if value not in self.unique_mapping:
-                if secret_type == "ipv4":
+                if secret_type == "ipv4": # noqa: S105
                     mapped_ip = f"240.0.0.{self.counter[secret_type]}"
                     self.unique_mapping[value] = mapped_ip
                     self.counter[secret_type] += 1
-                elif secret_type == "ipv6":
+                elif secret_type == "ipv6": # noqa: S105
                     self.unique_mapping[value] = self.ipv6_generator.generate_unique_ipv6()
-                elif secret_type == "phone":
+                elif secret_type == "phone": # noqa: S105
                     mapped_phone = f"{REDACTED_PHONE_BASE}{self.counter[secret_type]:02d}"
                     self.unique_mapping[value] = mapped_phone
                     self.counter[secret_type] += 1
                     if self.counter[secret_type] > REDACTED_PHONE_RANGE_END:
                         self.counter[secret_type] = REDACTED_PHONE_RANGE_START
-                elif secret_type == "url":
+                elif secret_type == "url": # noqa: S105
                     self.unique_mapping[value] = self._generate_unique_url(value)
-                elif secret_type == "api_key":
+                elif secret_type == "api_key": # noqa: S105
                     self.unique_mapping[value] = self._generate_unique_api_key(value)
                 else:
                     self.unique_mapping[value] = self._generate_unique_hostname()
@@ -240,7 +293,9 @@ class Redactor:
 
         def replace_match(match):
             value = match.group(0)
-            return self._generate_unique_mapping(value, pattern_type)
+            if self.should_redact_value(value, pattern_type):
+                return self._generate_unique_mapping(value, pattern_type)
+            return value
 
         return pattern.sub(replace_match, line)
 
@@ -262,7 +317,7 @@ class Redactor:
             redacted_lines = self.redact(lines)
             with open(file + "-redacted" + extension, "w") as f:
                 f.writelines(redacted_lines)
-            self.save_mappings(file + "-mappings.json")
+            self.save_mappings(file + "-mappings.toml")
             print(f"Redacted file saved as {file}-redacted")
         except FileNotFoundError:
             print(f"File not found: {file}")
@@ -342,7 +397,7 @@ class Redactor:
                     page.apply_redactions()
             redacted_pdf_file = pdf_file.replace(".pdf", "-redacted.pdf")
             doc.save(redacted_pdf_file)
-            self.save_mappings(pdf_file.replace(".pdf", "-mappings.json"))
+            self.save_mappings(pdf_file.replace(".pdf", "-mappings.toml"))
             print(f"Redacted PDF saved as {redacted_pdf_file}")
         except Exception as e:
             print(f"An error occurred while redacting the PDF file: {e}")
