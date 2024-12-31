@@ -4,8 +4,12 @@ import json
 import os
 import pathlib
 import re
+import tarfile
 import zipfile
 from typing import ClassVar
+
+import emval
+import rtoml
 
 from log_redactor.IPv4Generator import IPv4Generator
 from log_redactor.IPv6Generator import IPv6Generator
@@ -54,13 +58,13 @@ class Redactor:
         "url": lambda x: Redactor.is_valid_url(x),
         "hostname": lambda x: Redactor.is_valid_hostname(x),
         "phone": lambda x: Redactor.PATTERNS["phone"].match(x) is not None,
-        "email": lambda x: Redactor.PATTERNS["email"].match(x) is not None
+        "email": lambda x: emval.validate_email(x)
     }
 
     def __init__(self, interactive: bool = False):
         self.interactive = interactive
-        self.secrets = self._load_lists("secrets.csv")
-        self.ignores = self._load_lists("ignore.csv")
+        self.secrets = self._load_config("secrets")
+        self.ignores = self._load_config("ignore")
         self.unique_mapping = {}
         self.counter = {
             "ipv4": 0,
@@ -77,6 +81,19 @@ class Redactor:
         # self.phone_counter = REDACTED_PHONE_RANGE_START
         # self.hostname_counter = 1
         # self.counter = {key: 1 for key in self.PATTERNS.keys()}
+
+    def _load_config(self, config_type: str) -> dict[str, list[str]]:
+        """Load configuration from either TOML or CSV file."""
+        # Try TOML first
+        toml_file = f"{config_type}.toml"
+        if os.path.exists(toml_file):
+            try:
+                return rtoml.load(open(toml_file))
+            except Exception as e:
+                print(f"Error reading TOML file {toml_file}: {e}")
+
+        # Fall back to CSV
+        return self._load_lists(f"{config_type}.csv")
 
     def _load_lists(self, filename: str) -> dict[str, list[str]]:
         """Load secrets or ignore lists from a file."""
@@ -274,6 +291,38 @@ class Redactor:
         except Exception as e:
             print(f"An error occurred while extracting the ZIP file: {e}")
 
+    def extract_and_redact_archive(self, archive_path: str):
+        """Extract and redact files from various archive formats."""
+        base_name = os.path.splitext(archive_path)[0]
+        if base_name.endswith('.tar'):
+            base_name = os.path.splitext(base_name)[0]
+
+        extract_dir = f"{base_name}-redacted"
+
+        try:
+            if archive_path.endswith('.tar.gz') or archive_path.endswith('.tgz'):
+                with tarfile.open(archive_path, 'r:gz') as tar:
+                    tar.extractall(extract_dir)
+            elif archive_path.endswith('.tar'):
+                with tarfile.open(archive_path, 'r') as tar:
+                    tar.extractall(extract_dir)
+            elif archive_path.endswith('.gz'):
+                import gzip
+                with gzip.open(archive_path, 'rb') as gz:
+                    output_path = os.path.join(extract_dir, os.path.basename(base_name))
+                    os.makedirs(extract_dir, exist_ok=True)
+                    with open(output_path, 'wb') as out:
+                        out.write(gz.read())
+            else:
+                print(f"Unsupported archive format: {archive_path}")
+                return
+
+            print(f"Extracted {archive_path} to {extract_dir}")
+            self.redact_directory(extract_dir)
+
+        except Exception as e:
+            print(f"Error processing archive {archive_path}: {e}")
+
     def redact_pdf(self, pdf_file: str):
         """Redact sensitive information from a PDF file."""
         if not PDF_SUPPORT:
@@ -300,9 +349,9 @@ class Redactor:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Redact sensitive information from a file, directory, or a zip archive."
+        description="Redact sensitive information from a file, directory, or archive."
     )
-    parser.add_argument("path", help="The file, directory, or zip archive to redact")
+    parser.add_argument("path", help="The file, directory, or archive to redact")
     parser.add_argument(
         "-i", "--interactive", action="store_true", help="Run in interactive mode"
     )
@@ -312,8 +361,11 @@ def main():
 
     if os.path.isdir(args.path):
         redactor.redact_directory(args.path)
-    elif args.path.endswith('.zip'):
-        redactor.extract_and_redact_zip(args.path)
+    elif any(args.path.endswith(ext) for ext in ['.zip', '.tar', '.gz', '.tar.gz', '.tgz']):
+        if args.path.endswith('.zip'):
+            redactor.extract_and_redact_zip(args.path)
+        else:
+            redactor.extract_and_redact_archive(args.path)
     elif args.path.endswith('.pdf'):
         redactor.redact_pdf(args.path)
     else:
@@ -323,4 +375,4 @@ if __name__ == "__main__":
     main()
 
 # TODO: Add more patterns and validators
-# - https://github.com/bnkc/emval - Email Validator
+# [x] https://github.com/bnkc/emval - Email Validator

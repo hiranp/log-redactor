@@ -17,6 +17,10 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+dependencies = [
+    "emval>=0.1.5",
+    "rtoml>=0.12.0",
+]
 
 [project.urls]
 Homepage = "https://hiranp.github.io/log-redactor/"

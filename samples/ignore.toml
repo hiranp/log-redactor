@@ -1,0 +1,43 @@
+[ipv4]
+patterns = [
+  "127.0.0.1",
+  "10.0.0.*",
+  "192.168.*.*"
+]
+
+[email]
+patterns = [
+  "admin@example.com",
+  "*@internal.com",
+  "noreply@*"
+]
+
+[phone]
+patterns = [
+  "555-555-5555",
+  "800-555-*",
+  "(800) 555-*"
+]
+
+[hostname]
+patterns = [
+  "localhost",
+  "*.local",
+  "*-test.example.com", 
+  "dev-*.internal"
+]
+
+[url]
+patterns = [
+  "http://localhost",
+  "https://localhost:*",
+  "*.internal/*",
+  "http://127.0.0.1:*"
+]
+
+[api]
+patterns = [
+  "apikey=ignorethisapikey",
+  "token=test_*",
+  "key=dev_*"
+]
