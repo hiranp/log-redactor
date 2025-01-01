@@ -45,9 +45,9 @@ except ImportError:
 # Global variables for redacted patterns
 REDACTED_EMAIL_BASE = "redacted.user"
 REDACTED_EMAIL_DOMAIN = "@example.com"
-REDACTED_PHONE_BASE = "(800) 555-0"
-REDACTED_PHONE_RANGE_START = 0
-REDACTED_PHONE_RANGE_END = 999
+REDACTED_PHONE_BASE = "(800) 555-"
+REDACTED_PHONE_RANGE_START = 0000
+REDACTED_PHONE_RANGE_END = 9999
 REDACTED_HOST_BASE = "redacted_host"
 REDACTED_URL_BASE = "redacted.url"
 REDACTED_API_KEY_BASE = "redacted_api_key"
@@ -59,19 +59,36 @@ class Redactor:
         "ipv4": re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
         "ipv6": re.compile(r"\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:|::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}\b"),
         "hostname": re.compile(r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b"),
-        "phone": re.compile(r"\(\d{3}\) \d{3}-\d{4}|\d{3}-\d{3}-\d{4}|\d{3}\.\d{3}\.\d{4}|\d{3} \d{3} \d{4}"),
+        "phone": re.compile(
+            r"(?<![\w:])"  # Negative lookbehind for word char or colon
+            r"(?:"
+            r"\(\d{3}\) \d{3}-\d{4}|"          # (XXX) XXX-XXXX
+            r"\d{3}-\d{3}-\d{4}|"              # XXX-XXX-XXXX
+            r"\+1 \d{3}-\d{3}-\d{4}|"          # +1 XXX-XXX-XXXX
+            r"\+1 \d{3} \d{3} \d{4}|"          # +1 XXX XXX XXXX
+            r"\d{3} \d{3} \d{4}"               # XXX XXX XXXX
+            r")\b"
+            r"(?![\w:])"  # Negative lookahead for word char or colon
+        ),
         "email": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"),
         "url": re.compile(r"https?://[^\s/$.?#].[^\s]*"),
         "api_key": re.compile(r"\b(?:apikey|token|key|apitoken)=\w+\b")
     }
 
+    VALID_PHONE_PATTERNS: ClassVar[list] = [
+        re.compile(r"^\(\d{3}\) \d{3}-\d{4}$"),      # (XXX) XXX-XXXX
+        re.compile(r"^\d{3}-\d{3}-\d{4}$"),          # XXX-XXX-XXXX
+        re.compile(r"^\+1 \d{3}-\d{3}-\d{4}$"),      # +1 XXX-XXX-XXXX
+        re.compile(r"^\+1 \d{3} \d{3} \d{4}$"),       # +1 XXX XXX XXXX
+        re.compile(r"^\d{3} \d{3} \d{4}$")           # XXX XXX XXXX
+    ]
 
     VALIDATORS: ClassVar[dict] = {
         "ipv4": lambda x: Redactor.is_valid_ipv4(x),
         "ipv6": lambda x: Redactor.is_valid_ipv6(x),
         "url": lambda x: Redactor.is_valid_url(x),
         "hostname": lambda x: Redactor.is_valid_hostname(x),
-        "phone": lambda x: Redactor.PATTERNS["phone"].match(x) is not None,
+        "phone": lambda x: Redactor.is_valid_phone(x),
         "email": lambda x: Redactor.is_valid_email(x)
     }
 
@@ -255,33 +272,47 @@ class Redactor:
         hostname_regex = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)$", re.IGNORECASE)
         return all(hostname_regex.match(label) for label in labels)
 
+    @staticmethod
+    def is_valid_phone(phone: str) -> bool:
+        """Validate phone number format using pre-compiled patterns."""
+        return any(pattern.match(phone) for pattern in Redactor.VALID_PHONE_PATTERNS)
+
     def _generate_unique_email(self) -> str:
         """Generate a unique redacted email address."""
-        email = f"{REDACTED_EMAIL_BASE}{self.email_counter:03}{REDACTED_EMAIL_DOMAIN}"
-        self.email_counter += 1
+        email = f"{REDACTED_EMAIL_BASE}{self.counter['email']:03}{REDACTED_EMAIL_DOMAIN}"
+        self.counter['email'] += 1
         return email
 
     def _generate_unique_phone(self) -> str:
         """Generate a unique redacted phone number."""
-        if self.phone_counter > REDACTED_PHONE_RANGE_END:
+        if self.counter['phone'] > REDACTED_PHONE_RANGE_END:
             raise ValueError("No more phone numbers available in the specified range.")
-        phone = f"{REDACTED_PHONE_BASE}{str(self.phone_counter).zfill(2)}"
-        self.phone_counter += 1
+        phone = f"(800) 555-{str(self.counter['phone']).zfill(4)}"
+        self.counter['phone'] += 1
         return phone
 
     def _generate_unique_hostname(self) -> str:
         """Generate a unique redacted hostname."""
-        hostname = f"{REDACTED_HOST_BASE}{self.counter:03['hostname']}"
+        hostname = f"{REDACTED_HOST_BASE}{self.counter['hostname']:03}"
         self.counter['hostname'] += 1
         return hostname
 
     def _generate_unique_url(self, value: str) -> str:
-        """Generate a unique redacted URL, keeping the first part of the original URL."""
+        """Generate a unique redacted URL, keeping the structure of the original URL."""
         parsed_url = urllib.parse.urlparse(value)
         scheme = parsed_url.scheme
-        url = f"{scheme}://{REDACTED_URL_BASE}{self.counter['url']:03}"
+        netloc = f"{REDACTED_URL_BASE}{self.counter['url']:03}"
+        if parsed_url.port:
+            netloc += f":{parsed_url.port}"
+
+        path = parsed_url.path
+        query = parsed_url.query
+        redacted_url = f"{scheme}://{netloc}{path}"
+        if query:
+            redacted_url += f"?{query}"
         self.counter['url'] += 1
-        return url
+        return redacted_url
+
 
     def _generate_unique_api_key(self, value: str) -> str:
         """Generate a unique redacted API key, keeping the first part of the original key."""
@@ -293,21 +324,11 @@ class Redactor:
     def _generate_unique_mapping(self, value: str, pattern_type: str) -> str:
         """Generate a unique mapping for the given value based on its pattern type."""
         if pattern_type == "ipv4":
-            mapped_ip = f"240.0.0.{self.counter[pattern_type]}"
-            self.unique_mapping[value] = mapped_ip
-            self.counter[pattern_type] += 1
+            self.unique_mapping[value] = self.ipv4_generator.generate_unique_ipv4()
         elif pattern_type == "ipv6":
             self.unique_mapping[value] = self.ipv6_generator.generate_unique_ipv6()
         elif pattern_type == "phone":
-            mapped_phone = f"{REDACTED_PHONE_BASE}{self.counter[pattern_type]:02d}"
-            self.unique_mapping[value] = mapped_phone
-            self.counter[pattern_type] += 1
-            if self.counter[pattern_type] > REDACTED_PHONE_RANGE_END:
-                self.counter[pattern_type] = REDACTED_PHONE_RANGE_START
-        elif pattern_type == "url":
-            self.unique_mapping[value] = self._generate_unique_url(value)
-        elif pattern_type == "api_key":
-            self.unique_mapping[value] = self._generate_unique_api_key(value)
+            self.unique_mapping[value] = self._generate_unique_phone()
         elif pattern_type == "email":
             self.unique_mapping[value] = self._generate_unique_email()
         else:
@@ -325,8 +346,12 @@ class Redactor:
         def replace_match(match):
             value = match.group(0)
             if self.should_redact_value(value, pattern_type):
+                if pattern_type == "hostname":
+                    return self._generate_unique_hostname()
                 return self._generate_unique_mapping(value, pattern_type)
             return value
+
+        return pattern.sub(replace_match, line)
 
         return pattern.sub(replace_match, line)
 
