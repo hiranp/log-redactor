@@ -7,9 +7,6 @@ import tarfile
 import zipfile
 from typing import ClassVar
 
-import emval
-import rtoml
-
 from log_redactor.IPv4Generator import IPv4Generator
 from log_redactor.IPv6Generator import IPv6Generator
 
@@ -17,6 +14,24 @@ try:
     import urllib.parse
 except ImportError:
     print("Please install the urllib library using 'pip install urllib'")
+    exit()
+
+try:
+    import ipaddress
+except ImportError:
+    print("Please install the ipaddress library using 'pip install ipaddress'")
+    exit()
+
+try:
+    import rtoml
+except ImportError:
+    print("Please install the rtoml library using 'pip install rtoml'")
+    exit()
+
+try:
+    from emval import validate_email
+except ImportError:
+    print("Please install the emval library using 'pip install emval'")
     exit()
 
 PDF_SUPPORT = True
@@ -30,7 +45,7 @@ except ImportError:
 # Global variables for redacted patterns
 REDACTED_EMAIL_BASE = "redacted.user"
 REDACTED_EMAIL_DOMAIN = "@example.com"
-REDACTED_PHONE_BASE = "(800) 555-01"
+REDACTED_PHONE_BASE = "(800) 555-0"
 REDACTED_PHONE_RANGE_START = 0
 REDACTED_PHONE_RANGE_END = 999
 REDACTED_HOST_BASE = "redacted_host"
@@ -57,7 +72,7 @@ class Redactor:
         "url": lambda x: Redactor.is_valid_url(x),
         "hostname": lambda x: Redactor.is_valid_hostname(x),
         "phone": lambda x: Redactor.PATTERNS["phone"].match(x) is not None,
-        "email": lambda x: emval.validate_email(x)
+        "email": lambda x: Redactor.is_valid_email(x)
     }
 
     def __init__(self, interactive: bool = False):
@@ -68,11 +83,11 @@ class Redactor:
         self.counter = {
             "ipv4": 0,
             "ipv6": 0,
-            "hostname": 0,
+            "hostname": 1,
             "phone": REDACTED_PHONE_RANGE_START,
-            "email": 0,
-            "url": 0,
-            "api_key": 0
+            "email": 1,
+            "url": 1,
+            "api_key": 1
         }
         self.ipv4_generator = IPv4Generator()
         self.ipv6_generator = IPv6Generator()
@@ -85,8 +100,9 @@ class Redactor:
             return {key: [] for key in self.PATTERNS}
 
         try:
-            config = rtoml.load(open(config_path))
-            return config
+            with open(config_path) as config_file:
+                config = rtoml.load(config_file)
+                return config
         except Exception as e:
             print(f"Error reading TOML file {config_path}: {e}")
             return {key: [] for key in self.PATTERNS}
@@ -102,7 +118,7 @@ class Redactor:
         if pattern_type not in patterns:
             return False
         return any(self._matches_pattern(value, pattern)
-                  for pattern in patterns[pattern_type]["patterns"])
+            for pattern in patterns[pattern_type]["patterns"])
 
     def should_redact_value(self, value: str, pattern_type: str) -> bool:
         """
@@ -214,6 +230,18 @@ class Redactor:
             return False
 
     @staticmethod
+    def is_valid_email(email: str) -> bool:
+        try:
+            validate_email(
+                email,
+                allow_quoted_local=True,
+                deliverable_address=False,
+            )
+            return True
+        except SyntaxError:
+            return False
+
+    @staticmethod
     def is_valid_hostname(hostname: str) -> bool:
         if hostname[-1] == ".":
             hostname = hostname[:-1]
@@ -229,7 +257,7 @@ class Redactor:
 
     def _generate_unique_email(self) -> str:
         """Generate a unique redacted email address."""
-        email = f"{REDACTED_EMAIL_BASE}{self.email_counter}{REDACTED_EMAIL_DOMAIN}"
+        email = f"{REDACTED_EMAIL_BASE}{self.email_counter:03}{REDACTED_EMAIL_DOMAIN}"
         self.email_counter += 1
         return email
 
@@ -243,7 +271,7 @@ class Redactor:
 
     def _generate_unique_hostname(self) -> str:
         """Generate a unique redacted hostname."""
-        hostname = f"{REDACTED_HOST_BASE}{self.counter['hostname']}"
+        hostname = f"{REDACTED_HOST_BASE}{self.counter:03['hostname']}"
         self.counter['hostname'] += 1
         return hostname
 
@@ -251,39 +279,42 @@ class Redactor:
         """Generate a unique redacted URL, keeping the first part of the original URL."""
         parsed_url = urllib.parse.urlparse(value)
         scheme = parsed_url.scheme
-        url = f"{scheme}://{REDACTED_URL_BASE}{self.counter['url']}"
+        url = f"{scheme}://{REDACTED_URL_BASE}{self.counter['url']:03}"
         self.counter['url'] += 1
         return url
 
     def _generate_unique_api_key(self, value: str) -> str:
         """Generate a unique redacted API key, keeping the first part of the original key."""
-        key_type = value.split('=')[0]
-        api_key = f"{key_type}=redacted_api_key{self.counter['api_key']}"
+        key_type = re.sub(r'\W+', '', value.split('=')[0])  # Remove non-alphanumeric characters
+        api_key = f"{key_type}=redacted_api_key{self.counter['api_key']:03}"
         self.counter['api_key'] += 1
         return api_key
 
-    def _generate_unique_mapping(self, value: str, secret_type: str) -> str:
-            """Generate a unique mapping for redacted values."""
-            if value not in self.unique_mapping:
-                if secret_type == "ipv4": # noqa: S105
-                    mapped_ip = f"240.0.0.{self.counter[secret_type]}"
-                    self.unique_mapping[value] = mapped_ip
-                    self.counter[secret_type] += 1
-                elif secret_type == "ipv6": # noqa: S105
-                    self.unique_mapping[value] = self.ipv6_generator.generate_unique_ipv6()
-                elif secret_type == "phone": # noqa: S105
-                    mapped_phone = f"{REDACTED_PHONE_BASE}{self.counter[secret_type]:02d}"
-                    self.unique_mapping[value] = mapped_phone
-                    self.counter[secret_type] += 1
-                    if self.counter[secret_type] > REDACTED_PHONE_RANGE_END:
-                        self.counter[secret_type] = REDACTED_PHONE_RANGE_START
-                elif secret_type == "url": # noqa: S105
-                    self.unique_mapping[value] = self._generate_unique_url(value)
-                elif secret_type == "api_key": # noqa: S105
-                    self.unique_mapping[value] = self._generate_unique_api_key(value)
-                else:
-                    self.unique_mapping[value] = self._generate_unique_hostname()
-            return self.unique_mapping[value]
+    def _generate_unique_mapping(self, value: str, pattern_type: str) -> str:
+        """Generate a unique mapping for the given value based on its pattern type."""
+        if pattern_type == "ipv4":
+            mapped_ip = f"240.0.0.{self.counter[pattern_type]}"
+            self.unique_mapping[value] = mapped_ip
+            self.counter[pattern_type] += 1
+        elif pattern_type == "ipv6":
+            self.unique_mapping[value] = self.ipv6_generator.generate_unique_ipv6()
+        elif pattern_type == "phone":
+            mapped_phone = f"{REDACTED_PHONE_BASE}{self.counter[pattern_type]:02d}"
+            self.unique_mapping[value] = mapped_phone
+            self.counter[pattern_type] += 1
+            if self.counter[pattern_type] > REDACTED_PHONE_RANGE_END:
+                self.counter[pattern_type] = REDACTED_PHONE_RANGE_START
+        elif pattern_type == "url":
+            self.unique_mapping[value] = self._generate_unique_url(value)
+        elif pattern_type == "api_key":
+            self.unique_mapping[value] = self._generate_unique_api_key(value)
+        elif pattern_type == "email":
+            self.unique_mapping[value] = self._generate_unique_email()
+        else:
+            self.unique_mapping[value] = self._generate_unique_hostname()
+
+        return self.unique_mapping[value]
+
 
     def _redact_pattern(self, line: str, pattern_type: str) -> str:
         """Unified redaction method for all patterns"""

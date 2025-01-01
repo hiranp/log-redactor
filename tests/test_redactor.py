@@ -84,6 +84,88 @@ def test_sample():
     apitoken=abcdef1234567890
     """.strip().split('\n')
 
+@pytest.fixture
+def sample_secrets_toml():
+    return """
+[ipv4]
+patterns = [
+    "192.168.1.*",
+    "10.10.*.*"
+]
+
+[email]
+patterns = [
+    "*@internal.company.com",
+    "admin*@*"
+]
+"""
+
+@pytest.fixture
+def sample_ignore_toml():
+    return """
+[ipv4]
+patterns = [
+    "127.0.0.1",
+    "10.0.0.*"
+]
+
+[email]
+patterns = [
+    "public@example.com",
+    "*@public.com"
+]
+"""
+
+def test_load_toml_config(tmp_path, sample_secrets_toml, sample_ignore_toml):
+    # Create temporary TOML files
+    secrets_path = tmp_path / "samples" / "secrets.toml"
+    ignore_path = tmp_path / "samples" / "ignore.toml"
+
+    os.makedirs(secrets_path.parent, exist_ok=True)
+    secrets_path.write_text(sample_secrets_toml)
+    ignore_path.write_text(sample_ignore_toml)
+
+    redactor = Redactor()
+    assert "ipv4" in redactor.secrets
+    assert "email" in redactor.secrets
+    assert "192.168.1.*" in redactor.secrets["ipv4"]["patterns"]
+
+def test_wildcard_pattern_matching():
+    redactor = Redactor()
+    assert redactor._matches_pattern("test@internal.company.com", "*@internal.company.com")
+    assert redactor._matches_pattern("192.168.1.100", "192.168.1.*")
+    assert redactor._matches_pattern("admin123@example.com", "admin*@*")
+    assert not redactor._matches_pattern("test@example.com", "*@internal.company.com")
+
+def test_redaction_precedence():
+    redactor = Redactor()
+    # Test value in both secrets and ignore
+    value = "192.168.1.100"
+    assert redactor.should_redact_value(value, "ipv4") == True
+
+    # Test value only in ignore
+    value = "127.0.0.1"
+    assert redactor.should_redact_value(value, "ipv4") == False
+
+    # Test value only in secrets
+    value = "10.10.0.1"
+    assert redactor.should_redact_value(value, "ipv4") == True
+
+    # Test value in neither list
+    value = "8.8.8.8"
+    assert redactor.should_redact_value(value, "ipv4") == False
+
+def test_validation_rules():
+    redactor = Redactor()
+    # Test invalid IP
+    assert redactor.should_redact_value("256.256.256.256", "ipv4") == False
+
+    # Test invalid email
+    assert redactor.should_redact_value("not.an.email", "email") == False
+
+    # Test invalid URL
+    assert redactor.should_redact_value("not_a_url", "url") == False
+
 def test_redact_ipv4(test_sample, capsys):
     redactor = Redactor()
     redacted_lines = redactor.redact(test_sample)
@@ -123,13 +205,13 @@ def test_redact_ipv6(test_sample, capsys):
             "::ffff:192.168.1.1", "2001:db8:0:0:0:0:2:1", "::a00:1"
         ]):
             print(f"Failed to redact IPv6 address in line: {line}")
-            assert False
+            raise AssertionError()
 
     # Check that redacted IPv6 addresses follow the expected pattern
     for line in redacted_lines:
         if re.search(r"3fff:[0-9a-fA-F:]*", line) is None:
             print(f"Redacted IPv6 address does not match expected pattern in line: {line}")
-            assert False
+            raise AssertionError()
 
 def test_redact_hostname(test_sample, capsys):
     redactor = Redactor()
@@ -173,17 +255,15 @@ def test_redact_phone(test_sample, capsys):
 
     # Check that phone numbers are redacted
     for line in redacted_lines:
-        if any(phone in line for phone in [
-             "(888) 555-9900", "(800) 575-0101", "123-456-7890", "333.444.5555", "999 888 7777", "(555) 555-5555"
-        ]):
+        if any(phone in line for phone in [ "(888) 555-9900", "(800) 575-0101", "123-456-7890", "333.444.5555", "999 888 7777", "(555) 555-5555" ]):
             print(f"Failed to redact phone number in line: {line}")
-            assert False
+            raise AssertionError()
 
     # Check that redacted phone numbers follow the expected pattern
     for line in redacted_lines:
         if re.search(r"\(800\) 555-01\d{2}", line) is None:
             print(f"Redacted phone number does not match expected pattern in line: {line}")
-            assert False
+            raise AssertionError()
 
 def test_redact_email(test_sample, capsys):
     redactor = Redactor()
@@ -232,13 +312,13 @@ def test_redact_api_key(test_sample, capsys):
     for line in redacted_lines:
         if re.search(r"apikey=redacted_api_key\d+", line) is None:
             print(f"Redacted API key does not match expected pattern in line: {line}")
-            assert False
+            raise AssertionError()
         if re.search(r"token=redacted_api_key\d+", line) is None:
             print(f"Redacted API key does not match expected pattern in line: {line}")
-            assert False
+            raise AssertionError()
         if re.search(r"key=redacted_api_key\d+", line) is None:
             print(f"Redacted API key does not match expected pattern in line: {line}")
-            assert False
+            raise AssertionError()
         if re.search(r"apitoken=redacted_api_key\d+", line) is None:
             print(f"Redacted API key does not match expected pattern in line: {line}")
-            assert False
+            raise AssertionError()
