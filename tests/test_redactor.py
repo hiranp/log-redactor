@@ -118,6 +118,20 @@ patterns = [
 ]
 """
 
+@pytest.fixture
+def sample_secrets_csv():
+    return """ipv4,192.168.1.*
+ipv4,10.10.*.*
+email,*@internal.company.com
+email,admin*@*"""
+
+@pytest.fixture
+def sample_ignore_csv():
+    return """ipv4,127.0.0.1
+ipv4,10.0.0.*
+email,public@example.com
+email,*@public.com"""
+
 def test_load_toml_config(tmp_path, sample_secrets_toml, sample_ignore_toml):
     # Create temporary TOML files
     secrets_path = tmp_path / "samples" / "secrets.toml"
@@ -131,6 +145,51 @@ def test_load_toml_config(tmp_path, sample_secrets_toml, sample_ignore_toml):
     assert "ipv4" in redactor.secrets
     assert "email" in redactor.secrets
     assert "192.168.1.*" in redactor.secrets["ipv4"]["patterns"]
+
+def test_load_csv_config(tmp_path, sample_secrets_csv, sample_ignore_csv):
+    # Create temporary CSV files
+    secrets_path = tmp_path / "samples" / "secrets.csv"
+    ignore_path = tmp_path / "samples" / "ignore.csv"
+
+    os.makedirs(secrets_path.parent, exist_ok=True)
+    secrets_path.write_text(sample_secrets_csv)
+    ignore_path.write_text(sample_ignore_csv)
+
+    redactor = Redactor()
+    assert "ipv4" in redactor.secrets
+    assert "email" in redactor.secrets
+    assert "192.168.1.*" in redactor.secrets["ipv4"]["patterns"]
+
+def test_config_format_precedence(tmp_path, sample_secrets_toml, sample_secrets_csv):
+    # Test that TOML takes precedence over CSV when both exist
+    secrets_toml_path = tmp_path / "samples" / "secrets.toml"
+    secrets_csv_path = tmp_path / "samples" / "secrets.csv"
+
+    os.makedirs(secrets_toml_path.parent, exist_ok=True)
+    secrets_toml_path.write_text(sample_secrets_toml)
+    secrets_csv_path.write_text(sample_secrets_csv)
+
+    redactor = Redactor()
+    # Verify TOML config was loaded instead of CSV
+    assert "patterns" in redactor.secrets["ipv4"]
+    assert "192.168.1.*" in redactor.secrets["ipv4"]["patterns"]
+
+def test_save_to_file(tmp_path):
+    samples_dir = tmp_path / "samples"
+    os.makedirs(samples_dir, exist_ok=True)
+    
+    redactor = Redactor()
+    
+    # Test saving to TOML
+    redactor._save_to_file("secret", "192.168.1.*", "ipv4", "toml")
+    toml_path = samples_dir / "secrets.toml"
+    assert toml_path.exists()
+    
+    # Test saving to CSV
+    redactor._save_to_file("ignore", "127.0.0.1", "ipv4", "csv")
+    csv_path = samples_dir / "ignore.csv"
+    assert csv_path.exists()
+    assert "ipv4,127.0.0.1" in csv_path.read_text()
 
 def test_wildcard_pattern_matching():
     redactor = Redactor()

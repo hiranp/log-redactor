@@ -1,0 +1,5 @@
+ipv4,10.0.0.*
+email,*@internal-domain.com
+email,admin@*
+hostname,*.internal-domain.com
+hostname,secret-*.com

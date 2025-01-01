@@ -110,19 +110,50 @@ class Redactor:
         self.ipv6_generator = IPv6Generator()
 
     def _load_config(self, config_type: str) -> dict[str, list[str]]:
-        """Load configuration from TOML file in samples directory."""
-        config_path = os.path.join("samples", f"{config_type}.toml")
-        if not os.path.exists(config_path):
-            print(f"Warning: Configuration file {config_path} not found")
-            return {key: [] for key in self.PATTERNS}
+        """Load configuration from TOML or CSV file in samples directory."""
+        toml_path = os.path.join("samples", f"{config_type}.toml")
+        csv_path = os.path.join("samples", f"{config_type}.csv")
+        config = {key: {"patterns": []} for key in self.PATTERNS}
 
-        try:
-            with open(config_path) as config_file:
-                config = rtoml.load(config_file)
-                return config
-        except Exception as e:
-            print(f"Error reading TOML file {config_path}: {e}")
-            return {key: [] for key in self.PATTERNS}
+        # Try loading TOML first
+        if os.path.exists(toml_path):
+            try:
+                with open(toml_path) as config_file:
+                    return rtoml.load(config_file)
+            except Exception as e:
+                print(f"Error reading TOML file {toml_path}: {e}")
+
+        # Try loading CSV if TOML doesn't exist or failed
+        if os.path.exists(csv_path):
+            try:
+                with open(csv_path) as f:
+                    for line in f:
+                        if line.strip():
+                            pattern_type, value = line.strip().split(",", 1)
+                            if pattern_type in config:
+                                config[pattern_type]["patterns"].append(value)
+            except Exception as e:
+                print(f"Error reading CSV file {csv_path}: {e}")
+
+        return config
+
+    def _save_pattern(self, config_type: str, pattern_type: str, value: str, format: str = "toml"):
+        """Save a pattern to either TOML or CSV configuration file."""
+        if format == "toml":
+            file_path = os.path.join("samples", f"{config_type}.toml")
+            config = self._load_config(config_type)
+            if pattern_type not in config:
+                config[pattern_type] = {"patterns": []}
+            if value not in config[pattern_type]["patterns"]:
+                config[pattern_type]["patterns"].append(value)
+            os.makedirs(os.path.dirname(file_path), exist_okay=True)
+            with open(file_path, "w") as f:
+                rtoml.dump(config, f)
+        else:  # csv format
+            file_path = os.path.join("samples", f"{config_type}.csv")
+            os.makedirs(os.path.dirname(file_path), exist_okay=True)
+            with open(file_path, "a") as f:
+                f.write(f"{pattern_type},{value}\n")
 
     def _matches_pattern(self, value: str, pattern: str) -> bool:
         """Check if value matches a pattern, supporting wildcards."""
@@ -205,22 +236,33 @@ class Redactor:
         with open(file_path, 'w') as toml_file:
             rtoml.dump(mapping, toml_file)
 
-    def _ask_user(self, value: str, secret_type: str) -> bool:
+    def _ask_user(self, value: str, pattern_type: str) -> bool:
         """Prompt the user to decide whether to redact a value."""
-        print(f"Found a potential {secret_type}: {value}")
-        print("Would you like to redact? (yes/no/always/never)")
+        print(f"\nFound a potential {pattern_type}: {value}")
+        print("Options:")
+        print("1. yes/y - Redact this occurrence only")
+        print("2. no/n  - Don't redact this occurrence")
+        print("3. always/a [toml|csv] - Always redact (save to secrets)")
+        print("4. never/n [toml|csv] - Never redact (save to ignore)")
+
         while True:
-            answer = input().lower()
+            answer = input("Your choice: ").lower().strip()
+            parts = answer.split()
+
             if answer in ["yes", "y"]:
                 return True
             elif answer in ["no", "n"]:
                 return False
-            elif answer in ["always", "a"]:
-                self._save_to_file("secrets.csv", secret_type, value)
+            elif len(parts) == 2 and parts[0] in ["always", "a"]:
+                format_type = parts[1] if parts[1] in ["toml", "csv"] else "toml"
+                self._save_pattern("secrets", pattern_type, value, format_type)
                 return True
-            elif answer == "never":
-                self._save_to_file("ignore.csv", secret_type, value)
+            elif len(parts) == 2 and parts[0] == "never":
+                format_type = parts[1] if parts[1] in ["toml", "csv"] else "toml"
+                self._save_pattern("ignore", pattern_type, value, format_type)
                 return False
+            else:
+                print("Invalid choice. Please try again.")
 
     @staticmethod
     def is_valid_ipv4(ip: str) -> bool:
@@ -421,7 +463,7 @@ class Redactor:
                 import gzip
                 with gzip.open(archive_path, 'rb') as gz:
                     output_path = os.path.join(extract_dir, os.path.basename(base_name))
-                    os.makedirs(extract_dir, exist_ok=True)
+                    os.makedirs(extract_dir, exist_okay=True)
                     with open(output_path, 'wb') as out:
                         out.write(gz.read())
             else:
@@ -460,15 +502,42 @@ class Redactor:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Redact sensitive information from a file, directory, or archive."
+        description="""
+        Redact sensitive information from files, directories, or archives.
+        Supports multiple file formats including text, PDF, ZIP, TAR, and GZ.
+        Can be configured using either TOML or CSV configuration files.
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("path", help="The file, directory, or archive to redact")
-    parser.add_argument(
-        "-i", "--interactive", action="store_true", help="Run in interactive mode"
-    )
+
+    parser.add_argument("path",
+                       help="File, directory, or archive to redact")
+
+    parser.add_argument("-i", "--interactive",
+                       action="store_true",
+                       help="Run in interactive mode, prompting for decisions")
+
+    parser.add_argument("-c", "--config-format",
+                       choices=["toml", "csv"],
+                       default="toml",
+                       help="Configuration file format (default: toml)")
+
+    parser.add_argument("-m", "--mapping-format",
+                       choices=["toml", "csv"],
+                       default="toml",
+                       help="Mapping output file format (default: toml)")
+
+    parser.add_argument("-v", "--verbose",
+                       action="store_true",
+                       help="Increase output verbosity")
+
     args = parser.parse_args()
 
     redactor = Redactor(interactive=args.interactive)
+
+    if args.verbose:
+        print(f"Using {args.config_format} format for configuration")
+        print(f"Using {args.mapping_format} format for mapping output")
 
     if os.path.isdir(args.path):
         redactor.redact_directory(args.path)
