@@ -5,7 +5,7 @@ import pathlib
 import re
 import tarfile
 import zipfile
-from typing import ClassVar
+from typing import ClassVar, Optional
 
 from log_redactor.IPv4Generator import IPv4Generator
 from log_redactor.IPv6Generator import IPv6Generator
@@ -85,10 +85,11 @@ class Redactor:
         "url": lambda x: Redactor.is_valid_url(x),
         "hostname": lambda x: Redactor.is_valid_hostname(x),
         "phone": lambda x: Redactor.is_valid_phone(x),
-        "email": lambda x: Redactor.is_valid_email(x)
+        "email": lambda x: Redactor.is_valid_email(x),
+        "api_key": lambda x: Redactor.is_valid_api_key(x)  # Add API key validator
     }
 
-    def __init__(self, interactive: bool = False, config_path: str = None, config_format: str = "toml"):
+    def __init__(self, interactive: bool = False, config_path: Optional[str] = None, config_format: str = "toml"):
         """
         Initialize redactor with configuration options.
         Args:
@@ -335,6 +336,11 @@ class Redactor:
         """Validate phone number format using pre-compiled patterns."""
         return any(pattern.match(phone) for pattern in Redactor.VALID_PHONE_PATTERNS)
 
+    @staticmethod
+    def is_valid_api_key(api_key: str) -> bool:
+        """Validate if string matches API key pattern."""
+        return bool(re.match(r"\b(?:apikey|token|key|apitoken)=\w+\b", api_key))
+
     def _generate_unique_email(self) -> str:
         """Generate a unique redacted email address."""
         email = f"{REDACTED_EMAIL_BASE}{self.counter['email']:03}{REDACTED_EMAIL_DOMAIN}"
@@ -381,23 +387,30 @@ class Redactor:
 
     def _generate_unique_mapping(self, value: str, pattern_type: str) -> str:
         """Generate a unique mapping for the given value based on its pattern type."""
-        if pattern_type in ["api", "url"]:  # Treat both api and url patterns as URLs
-            self.unique_mapping[value] = self._generate_unique_url(value)
-        elif pattern_type == "ipv4":
-            self.unique_mapping[value] = self.ipv4_generator.generate_unique_ipv4()
+        if value in self.unique_mapping:
+            return self.unique_mapping[value]
+
+        redacted_value = None
+        if pattern_type == "ipv4":
+            redacted_value = self.ipv4_generator.generate_unique_ipv4()
         elif pattern_type == "ipv6":
-            self.unique_mapping[value] = self.ipv6_generator.generate_unique_ipv6()
+            redacted_value = self.ipv6_generator.generate_unique_ipv6()
         elif pattern_type == "phone":
-            self.unique_mapping[value] = self._generate_unique_phone()
+            redacted_value = self._generate_unique_phone()
         elif pattern_type == "email":
-            self.unique_mapping[value] = self._generate_unique_email()
+            redacted_value = self._generate_unique_email()
+        elif pattern_type == "url":
+            redacted_value = self._generate_unique_url(value)
         elif pattern_type == "api_key":
-            self.unique_mapping[value] = self._generate_unique_api_key(value)
-        else:
-            self.unique_mapping[value] = self._generate_unique_hostname()
+            redacted_value = self._generate_unique_api_key(value)
+        elif pattern_type == "hostname":
+            redacted_value = self._generate_unique_hostname()
 
-        return self.unique_mapping[value]
+        if redacted_value:
+            self.unique_mapping[value] = redacted_value
+            return redacted_value
 
+        return value
 
     def _redact_pattern(self, line: str, pattern_type: str) -> str:
         """Unified redaction method for all patterns"""
