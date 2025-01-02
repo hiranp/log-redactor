@@ -80,7 +80,7 @@ class Redactor:
     )
 
     # API key pattern - matches key/value pairs like apikey=xyz, token=abc, key=123
-    API_KEY_PATTERN: ClassVar[Pattern] = compile(
+    API_KEY_PATTERN: ClassVar[Pattern] = re.compile(
         r"\b(?:apikey|token|key|apitoken)=\w+\b",
         IGNORECASE
     )
@@ -349,9 +349,9 @@ class Redactor:
         return any(pattern.match(phone) for pattern in Redactor.VALID_PHONE_PATTERNS)
 
     @staticmethod
-    def is_valid_api_key(self, key: str) -> bool:
+    def is_valid_api_key(key: str) -> bool:
         """Validate API key using precompiled patterns."""
-        return any(pattern.match(key) for pattern in self.API_KEY_PATTERNS)
+        return Redactor.API_KEY_PATTERN.match(key) is not None
 
     def _generate_unique_email(self) -> str:
         """Generate a unique redacted email address."""
