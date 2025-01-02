@@ -40,7 +40,7 @@ try:
 except ImportError:
     PDF_SUPPORT = False
     print("PyMuPDF library not installed. PDF redaction will be disabled.")
-    print("Please install it using 'pip install --upgrade pymupdf'")
+    print("Please install the PyMuPDF library using 'pip install pymupdf'")
 
 # Global variables for redacted patterns
 REDACTED_EMAIL_BASE = "redacted.user"
@@ -221,20 +221,6 @@ class Redactor:
                 f.write("\n")
             f.write(f"{secret_type},{value}")
 
-    # def save_mappings(self, filename: str):
-    #     """Save unique mappings to a file."""
-    #     with open(filename, "w") as f:
-    #         json.dump(self.unique_mapping, f, indent=4)
-
-    def save_mapping(mapping, file_path):
-        """
-        Save the mapping to a .toml file.
-
-        :param mapping: Dictionary to save.
-        :param file_path: Path to the .toml file.
-        """
-        with open(file_path, 'w') as toml_file:
-            rtoml.dump(mapping, toml_file)
 
     def _ask_user(self, value: str, pattern_type: str) -> bool:
         """Prompt the user to decide whether to redact a value."""
@@ -406,17 +392,49 @@ class Redactor:
             redacted_lines.append(line)
         return redacted_lines
 
+    def _is_binary_file(self, file_path: str) -> bool:
+        """Check if file is binary by reading first chunk.
+        TODO: Improve binary file detection."""
+        chunk_size = 8192
+        try:
+            with open(file_path, 'rb') as f:
+                chunk = f.read(chunk_size)
+                return b'\0' in chunk  # Binary files typically contain null bytes
+        except Exception:
+            return False
+
+    # def save_mappings_csv(self, filename: str):
+    #     """Save unique mappings to a file."""
+    #     with open(filename, "w") as f:
+    #         json.dump(self.unique_mapping, f, indent=4)
+
+    def save_mappings(self, file_path: str) -> None:
+        """
+        Save the mapping to a .toml file.
+
+        :param file_path: Path to the .toml file.
+        """
+        with open(file_path, 'w') as toml_file:
+            rtoml.dump(self.mappings, toml_file)
+
     def redact_file(self, file: str):
         """Redact a file in place."""
         try:
-            extension = pathlib.Path(file).suffix or ".txt"
+            if self._is_binary_file(file):
+                print(f"Skipping binary file: {file}")
+                return
+
+            extension = pathlib.Path(file).suffix
+            if not extension:
+                extension = ".txt"
+
             with open(file) as f:
                 lines = f.readlines()
             redacted_lines = self.redact(lines)
             with open(file + "-redacted" + extension, "w") as f:
                 f.writelines(redacted_lines)
             self.save_mappings(file + "-mappings.toml")
-            print(f"Redacted file saved as {file}-redacted")
+            print(f"Redacted file saved as {file}-redacted{extension}")
         except FileNotFoundError:
             print(f"File not found: {file}")
         except Exception as e:
@@ -504,32 +522,32 @@ def main():
     parser = argparse.ArgumentParser(
         description="""
         Redact sensitive information from files, directories, or archives.
-        Supports multiple file formats including text, PDF, ZIP, TAR, and GZ.
+        Supports multiple file formats including text, ZIP, TAR, GZ, and PDF.
         Can be configured using either TOML or CSV configuration files.
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
     parser.add_argument("path",
-                       help="File, directory, or archive to redact")
+                        help="File, directory, or archive to redact")
 
     parser.add_argument("-i", "--interactive",
-                       action="store_true",
-                       help="Run in interactive mode, prompting for decisions")
+                        action="store_true",
+                        help="Run in interactive mode, prompting for decisions")
 
     parser.add_argument("-c", "--config-format",
-                       choices=["toml", "csv"],
-                       default="toml",
-                       help="Configuration file format (default: toml)")
+                        choices=["toml", "csv"],
+                        default="toml",
+                        help="Configuration file format (default: toml)")
 
     parser.add_argument("-m", "--mapping-format",
-                       choices=["toml", "csv"],
-                       default="toml",
-                       help="Mapping output file format (default: toml)")
+                        choices=["toml", "csv"],
+                        default="toml",
+                        help="Mapping output file format (default: toml)")
 
     parser.add_argument("-v", "--verbose",
-                       action="store_true",
-                       help="Increase output verbosity")
+                        action="store_true",
+                        help="Increase output verbosity")
 
     args = parser.parse_args()
 
