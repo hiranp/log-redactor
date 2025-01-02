@@ -60,15 +60,13 @@ class Redactor:
         "ipv6": re.compile(r"\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:|::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}\b"),
         "hostname": re.compile(r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b"),
         "phone": re.compile(
-            r"(?<![\w:])"  # Negative lookbehind for word char or colon
+            r"(?<!\d)"  # Negative lookbehind for digit
             r"(?:"
-            r"\(\d{3}\) \d{3}-\d{4}|"          # (XXX) XXX-XXXX
-            r"\d{3}-\d{3}-\d{4}|"              # XXX-XXX-XXXX
-            r"\+1 \d{3}-\d{3}-\d{4}|"          # +1 XXX-XXX-XXXX
-            r"\+1 \d{3} \d{3} \d{4}|"          # +1 XXX XXX XXXX
-            r"\d{3} \d{3} \d{4}"               # XXX XXX XXXX
-            r")\b"
-            r"(?![\w:])"  # Negative lookahead for word char or colon
+            r"\(\d{3}\)\s?\d{3}-\d{4}|"          # (XXX)XXX-XXXX or (XXX) XXX-XXXX
+            r"\+?1[\s-]?\d{3}[\s-]\d{3}[\s-]\d{4}|"  # +1 XXX-XXX-XXXX or +1 XXX XXX XXXX
+            r"\d{3}[-\s]\d{3}[-\s]\d{4}"         # XXX-XXX-XXXX or XXX XXX XXXX
+            r")"
+            r"(?!\d)"  # Negative lookahead for digit
         ),
         "email": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"),
         "url": re.compile(r"https?://[^\s/$.?#].[^\s]*"),
@@ -76,11 +74,9 @@ class Redactor:
     }
 
     VALID_PHONE_PATTERNS: ClassVar[list] = [
-        re.compile(r"^\(\d{3}\) \d{3}-\d{4}$"),      # (XXX) XXX-XXXX
-        re.compile(r"^\d{3}-\d{3}-\d{4}$"),          # XXX-XXX-XXXX
-        re.compile(r"^\+1 \d{3}-\d{3}-\d{4}$"),      # +1 XXX-XXX-XXXX
-        re.compile(r"^\+1 \d{3} \d{3} \d{4}$"),       # +1 XXX XXX XXXX
-        re.compile(r"^\d{3} \d{3} \d{4}$")           # XXX XXX XXXX
+        re.compile(r"^\(\d{3}\)\s?\d{3}-\d{4}$"),      # (XXX)XXX-XXXX or (XXX) XXX-XXXX
+        re.compile(r"^\+?1[\s-]?\d{3}[\s-]\d{3}[\s-]\d{4}$"),  # +1 XXX-XXX-XXXX or +1 XXX XXX XXXX
+        re.compile(r"^\d{3}[-\s]\d{3}[-\s]\d{4}$")    # XXX-XXX-XXXX or XXX XXX XXXX
     ]
 
     VALIDATORS: ClassVar[dict] = {
@@ -314,8 +310,8 @@ class Redactor:
     def _generate_unique_phone(self) -> str:
         """Generate a unique redacted phone number."""
         if self.counter['phone'] > REDACTED_PHONE_RANGE_END:
-            raise ValueError("No more phone numbers available in the specified range.")
-        phone = f"(800) 555-{str(self.counter['phone']).zfill(4)}"
+            self.counter['phone'] = REDACTED_PHONE_RANGE_START
+        phone = f"{REDACTED_PHONE_BASE}{str(self.counter['phone']).zfill(4)}"
         self.counter['phone'] += 1
         return phone
 
@@ -359,6 +355,10 @@ class Redactor:
             self.unique_mapping[value] = self._generate_unique_phone()
         elif pattern_type == "email":
             self.unique_mapping[value] = self._generate_unique_email()
+        elif pattern_type == "url":
+            self.unique_mapping[value] = self._generate_unique_url(value)
+        elif pattern_type == "api_key":
+            self.unique_mapping[value] = self._generate_unique_api_key(value)
         else:
             self.unique_mapping[value] = self._generate_unique_hostname()
 
