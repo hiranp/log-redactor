@@ -5,6 +5,7 @@ import pathlib
 import re
 import tarfile
 import zipfile
+from re import IGNORECASE, Pattern
 from typing import ClassVar, Optional
 
 from log_redactor.IPv4Generator import IPv4Generator
@@ -72,6 +73,17 @@ class Redactor:
         "url": re.compile(r"https?://[^\s/$.?#].[^\s]*"),
         "api_key": re.compile(r"\b(?:apikey|token|key|apitoken)=\w+\b")
     }
+
+    # Hostname pattern components
+    HOSTNAME_PATTERN: ClassVar[re.Pattern] = re.compile(
+        r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$'
+    )
+
+    # API key pattern - matches key/value pairs like apikey=xyz, token=abc, key=123
+    API_KEY_PATTERN: ClassVar[Pattern] = compile(
+        r"\b(?:apikey|token|key|apitoken)=\w+\b",
+        IGNORECASE
+    )
 
     VALID_PHONE_PATTERNS: ClassVar[list] = [
         re.compile(r"^\(\d{3}\)\s?\d{3}-\d{4}$"),      # (XXX)XXX-XXXX or (XXX) XXX-XXXX
@@ -337,9 +349,9 @@ class Redactor:
         return any(pattern.match(phone) for pattern in Redactor.VALID_PHONE_PATTERNS)
 
     @staticmethod
-    def is_valid_api_key(api_key: str) -> bool:
-        """Validate if string matches API key pattern."""
-        return bool(re.match(r"\b(?:apikey|token|key|apitoken)=[a-zA-Z0-9]+\b", api_key))
+    def is_valid_api_key(self, key: str) -> bool:
+        """Validate API key using precompiled patterns."""
+        return any(pattern.match(key) for pattern in self.API_KEY_PATTERNS)
 
     def _generate_unique_email(self) -> str:
         """Generate a unique redacted email address."""

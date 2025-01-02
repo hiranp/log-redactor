@@ -550,26 +550,41 @@ def test_redact_api_key(capsys):
         for original, redacted in zip([t[0] for t in test_cases], redacted_keys):
             print(f"{original} -> {redacted}")
 
-def test_api_key_validation():
-    """Test API key validation logic"""
-    redactor = Redactor()
-
-    valid_keys = [
+@pytest.fixture
+def valid_api_keys():
+    return [
         "apikey=1234567890abcdef",
         "token=abcdef1234567890",
         "key=987654321xyz",
         "apitoken=abc123def456"
     ]
 
-    invalid_keys = [
+@pytest.fixture
+def invalid_api_keys():
+    return [
         "notakey=1234",
         "api_key_without_equals",
         "key=",
         "=value"
     ]
 
-    for key in valid_keys:
-        assert redactor.should_redact_value(key, "api_key"), f"Should redact valid key: {key}"
+def test_api_key_validation(valid_api_keys, invalid_api_keys, capsys):
+    """Test API key validation and redaction"""
+    redactor = Redactor()
+    print("\nTesting Valid API Keys:")
 
-    for key in invalid_keys:
-        assert not redactor.should_redact_value(key, "api_key"), f"Should not redact invalid key: {key}"
+    for key in valid_api_keys:
+        redacted = redactor._generate_unique_mapping(key, 'api_key')
+        print(f"\nInput:    {key}")
+        print(f"Redacted: {redacted}")
+        assert redactor.should_redact_value(key, "api_key"), f"Failed to redact valid key: {key}"
+        assert key not in redacted, f"Original key found in redacted value: {key}"
+
+    print("\nTesting Invalid API Keys:")
+    for key in invalid_api_keys:
+        print(f"\nTesting invalid key: {key}")
+        assert not redactor.should_redact_value(key, "api_key"), f"Incorrectly redacted invalid key: {key}"
+
+    print("\nFinal API Key Mappings:")
+    for original, redacted in redactor.unique_mapping.items():
+        print(f"{original} -> {redacted}")
