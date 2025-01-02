@@ -1,8 +1,10 @@
 import os
 import re
 import sys
+import urllib.parse
 
 import pytest
+import rtoml
 
 # Add the parent directory to the sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -175,21 +177,63 @@ def test_config_format_precedence(tmp_path, sample_secrets_toml, sample_secrets_
     assert "192.168.1.*" in redactor.secrets["ipv4"]["patterns"]
 
 def test_save_to_file(tmp_path):
+    """Test saving patterns to both TOML and CSV formats"""
+    # Create a redactor with samples dir in tmp_path
+    redactor = Redactor()
     samples_dir = tmp_path / "samples"
     os.makedirs(samples_dir, exist_ok=True)
 
+    # Override the default samples directory for testing
+    original_dir = os.getcwd()
+    os.chdir(tmp_path)
+
+    try:
+        # Test saving to TOML
+        redactor._save_to_file("secret", "ipv4", "192.168.1.*", "toml")
+        toml_path = samples_dir / "secrets.toml"
+        assert toml_path.exists()
+        with open(toml_path) as f:
+            config = rtoml.load(f)
+            assert "ipv4" in config
+            assert "192.168.1.*" in config["ipv4"]["patterns"]
+
+        # Test saving to CSV
+        redactor._save_to_file("ignore", "ipv4", "127.0.0.1", "csv")
+        csv_path = samples_dir / "ignores.csv"
+        assert csv_path.exists()
+        with open(csv_path) as f:
+            content = f.read()
+            assert "ipv4,127.0.0.1" in content
+
+    finally:
+        # Restore original working directory
+        os.chdir(original_dir)
+
+def test_save_mappings(tmp_path):
+    """Test saving mappings in both TOML and CSV formats"""
     redactor = Redactor()
+    redactor.unique_mapping = {
+        "192.168.1.1": "10.0.0.1",
+        "test@example.com": "redacted.user001@example.com"
+    }
 
-    # Test saving to TOML
-    redactor._save_to_file("secret", "192.168.1.*", "ipv4", "toml")
-    toml_path = samples_dir / "secrets.toml"
+    # Test TOML format
+    toml_path = tmp_path / "mappings.toml"
+    redactor.save_mappings(str(toml_path), "toml")
     assert toml_path.exists()
+    with open(toml_path) as f:
+        data = rtoml.load(f)
+        assert "mappings" in data
+        assert data["mappings"]["192.168.1.1"] == "10.0.0.1"
 
-    # Test saving to CSV
-    redactor._save_to_file("ignore", "127.0.0.1", "ipv4", "csv")
-    csv_path = samples_dir / "ignore.csv"
+    # Test CSV format
+    csv_path = tmp_path / "mappings.csv"
+    redactor.save_mappings(str(csv_path), "csv")
     assert csv_path.exists()
-    assert "ipv4,127.0.0.1" in csv_path.read_text()
+    with open(csv_path) as f:
+        lines = f.readlines()
+        assert "192.168.1.1,10.0.0.1\n" in lines
+        assert "test@example.com,redacted.user001@example.com\n" in lines
 
 def test_wildcard_pattern_matching():
     redactor = Redactor()
@@ -416,22 +460,46 @@ def test_redact_email(test_sample, capsys):
         ])
 
 
-def test_redact_url(test_sample, capsys):
+def test_redact_url():
     redactor = Redactor()
-
+    REDACTED_URL_BASE = "redacted.url"
     test_urls = [
         "https://api.example.com",
         "http://subdomain.example.com:8080/path",
         "https://example.com/api/v1?key=value",
-        "ftp://files.example.com" # Invalid URL
+        "ftp://files.example.com"  # Invalid URL
     ]
 
+    redacted_urls = []
     for url in test_urls:
-        redacted = redactor._generate_unique_mapping(url, 'api')
+        if not re.match(r'https?://', url):
+            print(f"\nSkipping invalid URL: {url}")
+            continue
+
+        redacted = redactor._generate_unique_mapping(url, "url")
+        redacted_urls.append(redacted)
         print(f"\nTesting URL: {url}")
         print(f"Redacted as: {redacted}")
-        assert redacted.startswith("https://redacted.url"), f"URL not properly redacted: {url}"
-        assert redacted.endswith("001"), f"Expected URL to end with '001', got: {redacted}"
+
+        # Check basic URL structure
+        assert redacted.startswith("https://"), f"URL should start with https://: {redacted}"
+        assert REDACTED_URL_BASE in redacted, f"URL should contain {REDACTED_URL_BASE}: {redacted}"
+
+        # Check that original URL components are replaced
+        original_parts = urllib.parse.urlparse(url)
+        redacted_parts = urllib.parse.urlparse(redacted)
+
+        # The hostname should be redacted
+        assert original_parts.netloc not in redacted_parts.netloc
+
+        # Path and query should be preserved if present
+        if original_parts.path:
+            assert redacted_parts.path == original_parts.path
+        if original_parts.query:
+            assert redacted_parts.query == original_parts.query
+
+    # Verify each URL gets a unique redaction
+    assert len(set(redacted_urls)) == len(redacted_urls), "Each URL should have a unique redaction"
 
 def test_redact_api_key(test_sample, capsys):
     redactor = Redactor()

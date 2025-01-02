@@ -88,8 +88,17 @@ class Redactor:
         "email": lambda x: Redactor.is_valid_email(x)
     }
 
-    def __init__(self, interactive: bool = False):
+    def __init__(self, interactive: bool = False, config_path: str = None, config_format: str = "toml"):
+        """
+        Initialize redactor with configuration options.
+        Args:
+            interactive: Whether to run in interactive mode
+            config_path: Path to configuration directory (default: current working directory)
+            config_format: Format of config files ("toml" or "csv")
+        """
         self.interactive = interactive
+        self.config_path = config_path or os.getcwd()
+        self.config_format = config_format
         self.secrets = self._load_config("secrets")
         self.ignores = self._load_config("ignore")
         self.unique_mapping = {}
@@ -106,48 +115,81 @@ class Redactor:
         self.ipv6_generator = IPv6Generator()
 
     def _load_config(self, config_type: str) -> dict[str, list[str]]:
-        """Load configuration from TOML or CSV file in samples directory."""
-        toml_path = os.path.join("samples", f"{config_type}.toml")
-        csv_path = os.path.join("samples", f"{config_type}.csv")
+        """
+        Load configuration from file in specified format.
+
+        Args:
+            config_type: Type of config ("secrets" or "ignore")
+        """
         config = {key: {"patterns": []} for key in self.PATTERNS}
 
-        # Try loading TOML first
-        if os.path.exists(toml_path):
-            try:
-                with open(toml_path) as config_file:
-                    return rtoml.load(config_file)
-            except Exception as e:
-                print(f"Error reading TOML file {toml_path}: {e}")
+        # Build file paths for both formats
+        paths = {
+            "toml": os.path.join(self.config_path, f"{config_type}.toml"),
+            "csv": os.path.join(self.config_path, f"{config_type}.csv")
+        }
 
-        # Try loading CSV if TOML doesn't exist or failed
-        if os.path.exists(csv_path):
+        # Try loading specified format first
+        if os.path.exists(paths[self.config_format]):
             try:
-                with open(csv_path) as f:
-                    for line in f:
-                        if line.strip():
-                            pattern_type, value = line.strip().split(",", 1)
-                            if pattern_type in config:
-                                config[pattern_type]["patterns"].append(value)
+                if self.config_format == "toml":
+                    with open(paths[self.config_format]) as f:
+                        return rtoml.load(f)
+                else:  # csv format
+                    with open(paths[self.config_format]) as f:
+                        for line in f:
+                            if line.strip():
+                                pattern_type, value = line.strip().split(",", 1)
+                                if pattern_type in config:
+                                    if "patterns" not in config[pattern_type]:
+                                        config[pattern_type]["patterns"] = []
+                                    config[pattern_type]["patterns"].append(value)
+                    return config
             except Exception as e:
-                print(f"Error reading CSV file {csv_path}: {e}")
+                print(f"Error reading {self.config_format} file {paths[self.config_format]}: {e}")
 
         return config
 
-    def _save_pattern(self, config_type: str, pattern_type: str, value: str, format: str = "toml"):
-        """Save a pattern to either TOML or CSV configuration file."""
-        if format == "toml":
-            file_path = os.path.join("samples", f"{config_type}.toml")
+    def _save_pattern(self, config_type: str, pattern_type: str, value: str, save_format: str = "toml"):
+        """Save a pattern to either TOML or CSV configuration file. Defined by config_type."""
+        if save_format == "toml":
+            file_path = os.path.join(self.config_path, f"{config_type}.toml")
             config = self._load_config(config_type)
             if pattern_type not in config:
                 config[pattern_type] = {"patterns": []}
             if value not in config[pattern_type]["patterns"]:
                 config[pattern_type]["patterns"].append(value)
-            os.makedirs(os.path.dirname(file_path), exist_okay=True)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
             with open(file_path, "w") as f:
                 rtoml.dump(config, f)
         else:  # csv format
-            file_path = os.path.join("samples", f"{config_type}.csv")
+            file_path = os.path.join(self.config_path, f"{config_type}.csv")
             os.makedirs(os.path.dirname(file_path), exist_okay=True)
+            with open(file_path, "a") as f:
+                f.write(f"{pattern_type},{value}\n")
+
+    def _save_to_file(self, config_type: str, pattern_type: str, value: str, format_type: str = "toml") -> None:
+        """
+        Save a pattern to either TOML or CSV configuration file.
+
+        Args:
+            config_type: Type of config ("secret" or "ignore")
+            pattern_type: Type of pattern (e.g., "ipv4", "email")
+            value: Pattern value to save
+            format_type: File format ("toml" or "csv")
+        """
+
+        if format_type == "toml":
+            file_path = os.path.join(self.config_path, f"{config_type}s.toml")
+            config = self._load_config(f"{config_type}s")
+            if pattern_type not in config:
+                config[pattern_type] = {"patterns": []}
+            if value not in config[pattern_type]["patterns"]:
+                config[pattern_type]["patterns"].append(value)
+            with open(file_path, "w") as f:
+                rtoml.dump(config, f)
+        else:  # csv format
+            file_path = os.path.join(self.config_path, f"{config_type}s.csv")
             with open(file_path, "a") as f:
                 f.write(f"{pattern_type},{value}\n")
 
@@ -209,14 +251,6 @@ class Redactor:
         except FileNotFoundError:
             pass
         return lists
-
-    def _save_to_file(self, filename: str, secret_type: str, value: str):
-        """Save a value to a secrets or ignore list."""
-        with open(filename, "a") as f:
-            if f.tell() != 0:
-                f.write("\n")
-            f.write(f"{secret_type},{value}")
-
 
     def _ask_user(self, value: str, pattern_type: str) -> bool:
         """Prompt the user to decide whether to redact a value."""
@@ -347,7 +381,9 @@ class Redactor:
 
     def _generate_unique_mapping(self, value: str, pattern_type: str) -> str:
         """Generate a unique mapping for the given value based on its pattern type."""
-        if pattern_type == "ipv4":
+        if pattern_type in ["api", "url"]:  # Treat both api and url patterns as URLs
+            self.unique_mapping[value] = self._generate_unique_url(value)
+        elif pattern_type == "ipv4":
             self.unique_mapping[value] = self.ipv4_generator.generate_unique_ipv4()
         elif pattern_type == "ipv6":
             self.unique_mapping[value] = self.ipv6_generator.generate_unique_ipv6()
@@ -355,8 +391,6 @@ class Redactor:
             self.unique_mapping[value] = self._generate_unique_phone()
         elif pattern_type == "email":
             self.unique_mapping[value] = self._generate_unique_email()
-        elif pattern_type == "url":
-            self.unique_mapping[value] = self._generate_unique_url(value)
         elif pattern_type == "api_key":
             self.unique_mapping[value] = self._generate_unique_api_key(value)
         else:
@@ -403,22 +437,37 @@ class Redactor:
         except Exception:
             return False
 
-    # def save_mappings_csv(self, filename: str):
+    # def save_mappings_json(self, filename: str):
     #     """Save unique mappings to a file."""
     #     with open(filename, "w") as f:
     #         json.dump(self.unique_mapping, f, indent=4)
 
-    def save_mappings(self, file_path: str) -> None:
+    def save_mappings(self, file_path: str, format_type: str = "toml") -> None:
         """
-        Save the mapping to a .toml file.
+        Save the mapping to a file in specified format.
 
-        :param file_path: Path to the .toml file.
+        Args:
+            file_path: Path to the output file
+            format_type: File format ("toml" or "csv"), defaults to "toml"
         """
-        with open(file_path, 'w') as toml_file:
-            rtoml.dump(self.mappings, toml_file)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
-    def redact_file(self, file: str):
-        """Redact a file in place."""
+        if format_type == "toml":
+            with open(file_path, 'w') as f:
+                rtoml.dump({"mappings": self.unique_mapping}, f)
+        else:  # csv format
+            with open(file_path, 'w') as f:
+                for original, redacted in self.unique_mapping.items():
+                    f.write(f"{original},{redacted}\n")
+
+    def redact_file(self, file: str, mapping_format: str = "toml"):
+        """
+        Redact a file in place.
+
+        Args:
+            file: Path to file to redact
+            mapping_format: Format for saving mappings ("toml" or "csv")
+        """
         try:
             if self._is_binary_file(file):
                 print(f"Skipping binary file: {file}")
@@ -433,8 +482,13 @@ class Redactor:
             redacted_lines = self.redact(lines)
             with open(file + "-redacted" + extension, "w") as f:
                 f.writelines(redacted_lines)
-            self.save_mappings(file + "-mappings.toml")
+
+            # Save mappings in specified format
+            mapping_ext = ".toml" if mapping_format == "toml" else ".csv"
+            self.save_mappings(file + "-mappings" + mapping_ext, mapping_format)
+
             print(f"Redacted file saved as {file}-redacted{extension}")
+            print(f"Mappings saved as {file}-mappings{mapping_ext}")
         except FileNotFoundError:
             print(f"File not found: {file}")
         except Exception as e:
@@ -535,7 +589,10 @@ def main():
                         action="store_true",
                         help="Run in interactive mode, prompting for decisions")
 
-    parser.add_argument("-c", "--config-format",
+    parser.add_argument("-c", "--config-path",
+                        help="Path to directory containing config files (default: current directory)")
+
+    parser.add_argument("--config-format",
                         choices=["toml", "csv"],
                         default="toml",
                         help="Configuration file format (default: toml)")
@@ -551,11 +608,16 @@ def main():
 
     args = parser.parse_args()
 
-    redactor = Redactor(interactive=args.interactive)
+    redactor = Redactor(
+        interactive=args.interactive,
+        config_path=args.config_path,
+        config_format=args.config_format
+    )
 
     if args.verbose:
-        print(f"Using {args.config_format} format for configuration")
-        print(f"Using {args.mapping_format} format for mapping output")
+        print(f"Using config path: {args.config_path or os.getcwd()}")
+        print(f"Using config format: {args.config_format}")
+        print(f"Using mapping format: {args.mapping_format}")
 
     if os.path.isdir(args.path):
         redactor.redact_directory(args.path)
