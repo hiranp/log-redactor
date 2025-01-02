@@ -339,7 +339,7 @@ class Redactor:
     @staticmethod
     def is_valid_api_key(api_key: str) -> bool:
         """Validate if string matches API key pattern."""
-        return bool(re.match(r"\b(?:apikey|token|key|apitoken)=\w+\b", api_key))
+        return bool(re.match(r"\b(?:apikey|token|key|apitoken)=[a-zA-Z0-9]+\b", api_key))
 
     def _generate_unique_email(self) -> str:
         """Generate a unique redacted email address."""

@@ -376,35 +376,46 @@ def test_redact_ipv6(test_sample, capsys):
             print(f"Redacted IPv6 address does not match expected pattern in line: {line}")
             raise AssertionError()
 
-def test_redact_hostname(test_sample, capsys):
+@pytest.fixture
+def test_hostnames():
+    return [
+        "example.com",
+        "subdomain.example.com",
+        "my-hostname.org",
+        "test.example.co.uk",
+        "example123.net",
+        "test-site.com",
+        "sub.domain.example",
+        "hostname-with-dash.com",
+        "example-123.net"
+    ]
+
+def test_redact_hostname(test_hostnames, capsys):
     redactor = Redactor()
-    redacted_lines = redactor.redact(test_sample)
 
-    # Capture the standard output
-    captured = capsys.readouterr()
+    for hostname in test_hostnames:
+        # Test single hostname
+        redacted = redactor._generate_unique_mapping(hostname, 'hostname')
+        print(f"\nTesting hostname: {hostname}")
+        print(f"Redacted as: {redacted}")
 
-    # Print the redacted lines for debugging
-    print("Redacted Lines:\n" + "\n".join(captured))
+        # Verify redaction
+        assert hostname not in redacted, f"Hostname {hostname} was not redacted"
+        assert redacted.startswith("redacted_host"), f"Expected redacted_host prefix, got: {redacted}"
+        assert redacted.endswith("001"), f"Expected suffix '001', got: {redacted}"
 
-    # Check that hostnames are redacted
-    for line in redacted_lines:
-        assert not any(hostname in line for hostname in [
-            "example.com", "subdomain.example.com", "my-hostname.org",
-            "test.example.co.uk", "example123.net", "test-site.com",
-            "sub.domain.example", "hostname-with-dash.com", "example-123.net"
-        ])
+        # Test in a line of text
+        test_line = f"Server {hostname} is responding"
+        redacted_line = redactor._redact_pattern(test_line, "hostname")
+        print(f"Original line: {test_line}")
+        print(f"Redacted line: {redacted_line}")
 
-    # Check that redacted hostnames follow the expected pattern
-    for line in redacted_lines:
-        assert not re.search(r"\bexample\.com\b", line)
-        assert not re.search(r"\bsubdomain\.example\.com\b", line)
-        assert not re.search(r"\bmy-hostname\.org\b", line)
-        assert not re.search(r"\btest\.example\.co\.uk\b", line)
-        assert not re.search(r"\bexample123\.net\b", line)
-        assert not re.search(r"\btest-site\.com\b", line)
-        assert not re.search(r"\bsub\.domain\.example\b", line)
-        assert not re.search(r"\bhostname-with-dash\.com\b", line)
-        assert not re.search(r"\bexample-123\.net\b", line)
+        assert hostname not in redacted_line, f"Hostname {hostname} found in redacted line"
+
+    # Show final mapping
+    print("\nFinal hostname mappings:")
+    for original, redacted in redactor.unique_mapping.items():
+        print(f"{original} -> {redacted}")
 
 def test_redact_phone(test_sample, capsys):
     redactor = Redactor()
