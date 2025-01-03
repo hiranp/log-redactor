@@ -510,20 +510,89 @@ def test_redact_phone(test_phones, invalid_phones, capsys):
     for original, redacted in redactor.unique_mapping.items():
         print(f"{original} -> {redacted}")
 
-def test_redact_email(test_sample, capsys):
-    redactor = Redactor()
-    redacted_lines = redactor.redact(test_sample)
+# def test_redact_email(test_sample, capsys):
+#     redactor = Redactor()
+#     redacted_lines = redactor.redact(test_sample)
 
-    # Capture the standard output
-    captured = capsys.readouterr()
-    print("Redacted Lines:\n" + "\n".join(captured))
-    # Check that email addresses are redacted
-    for line in redacted_lines:
-        assert not any(email in line for email in [
-            "john.doe@example.com", "jane.doe@example.com", "admin@example.com",
-            "user@example.com", "contact@example.com"
-        ])
+#     # Capture the standard output
+#     captured = capsys.readouterr()
+#     print("Redacted Lines:\n" + "\n".join(captured))
+#     # Check that email addresses are redacted
+#     for line in redacted_lines:
+#         assert not any(email in line for email in [
+#             "john.doe@example.com", "jane.doe@example.com", "admin@example.com",
+#             "user@example.com", "contact@example.com"
+#         ])
 
+@pytest.fixture
+def test_email_values():
+    return {
+        'email': [
+            ('john.doe@example.com', 'redacted.user001@example.com'),  # Domain not redacted
+            ('admin@test.com', 'redacted.user002@redacted_host001'),   # Domain redacted
+            ('user123@domain.co.uk', 'redacted.user003@domain.co.uk')  # Domain not redacted
+        ]
+    }
+
+@pytest.fixture
+def email_secrets_toml():
+    return """
+[email]
+patterns = [
+    "*@example.com",
+    "admin@*",
+    "*@domain.co.uk"
+]
+
+[hostname]
+patterns = [
+    "test.com"
+]
+"""
+
+def test_redact_email(test_email_values, email_secrets_toml, tmp_path, capsys):
+    # Set up secrets configuration
+    secrets_path = tmp_path / "secrets.toml"
+    os.makedirs(tmp_path, exist_ok=True)
+    secrets_path.write_text(email_secrets_toml)
+
+    # Initialize redactor with config path
+    redactor = Redactor(config_path=str(tmp_path))
+
+    for redact_type, test_cases in test_email_values.items():
+        print(f"\nTesting {redact_type} redactions:")
+
+        for original, expected in test_cases:
+            # Test redaction mapping
+            redacted = redactor._generate_unique_mapping(original, redact_type)
+            print(f"\nInput:    {original}")
+            print(f"Redacted: {redacted}")
+            print(f"Expected: {expected}")
+
+            # Verify format
+            assert redacted.startswith("redacted.user"), f"Wrong prefix: {redacted}"
+            local_part, domain = redacted.split('@')
+
+            # Verify each part
+            assert local_part.startswith("redacted.user"), f"Wrong local part prefix: {local_part}"
+            if "test.com" in original:  # Domain should be redacted
+                assert domain.startswith("redacted_host"), f"Domain should be redacted: {domain}"
+            else:  # Domain should be preserved
+                assert domain == original.split('@')[1], f"Domain should not be redacted: {domain}"
+
+            # Test full text redaction
+            test_line = f"Email found: {original}"
+            redacted_line = redactor.redact([test_line])[0]
+            print(f"Original: {test_line}")
+            print(f"Redacted: {redacted_line}")
+
+            assert original not in redacted_line, f"Original email found in: {redacted_line}"
+            assert redacted in redacted_line, f"Redacted value not found in: {redacted_line}"
+
+    # Show mappings
+    print("\nFinal Mappings:")
+    for k, v in redactor.unique_mapping.items():
+        print(f"{k} -> {v}")
 
 def test_redact_url(capsys):
     redactor = Redactor()

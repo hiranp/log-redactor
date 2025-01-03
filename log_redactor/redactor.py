@@ -368,7 +368,12 @@ class Redactor:
 
     def _generate_unique_email(self) -> str:
         """Generate a unique redacted email address."""
-        email = f"{REDACTED_EMAIL_BASE}{self.counter['email']:03}{REDACTED_EMAIL_DOMAIN}"
+        # Split input email into local and domain parts
+        local_part = f"{REDACTED_EMAIL_BASE}{self.counter['email']:03d}"
+        domain_part = REDACTED_EMAIL_DOMAIN.lstrip('@')  # Remove leading @ as we'll add it back
+        
+        # Combine parts
+        email = f"{local_part}@{domain_part}"
         self.counter['email'] += 1
         return email
 
@@ -430,7 +435,15 @@ class Redactor:
         elif pattern_type == "phone":
             redacted_value = self._generate_unique_phone()
         elif pattern_type == "email":
-            redacted_value = self._generate_unique_email()
+            # Special handling for emails to preserve domain if not redacted
+            local_part, domain = value.split('@')
+            redacted_local = f"{REDACTED_EMAIL_BASE}{self.counter['email']:03d}"
+            # Check if domain should be redacted
+            if self.should_redact_value(domain, "hostname"):
+                domain = f"redacted_host{self.counter['hostname']:03d}"
+                self.counter['hostname'] += 1
+            redacted_value = f"{redacted_local}@{domain}"
+            self.counter['email'] += 1
         elif pattern_type == "url":
             redacted_value = self._generate_unique_url(value)
         elif pattern_type == "api_key":
