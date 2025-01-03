@@ -71,7 +71,7 @@ class Redactor:
         ),
         "email": re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"),
         "url": re.compile(r"https?://[^\s/$.?#].[^\s]*"),
-        "api_key": re.compile(r"\b(?:apikey|token|key|apitoken)=\w+\b")
+        "api_key": re.compile(r"\b(?:apikey|token|key|apitoken)=\w+\b", IGNORECASE)
     }
 
     # Hostname pattern components
@@ -81,8 +81,7 @@ class Redactor:
 
     # API key pattern - matches key/value pairs like apikey=xyz, token=abc, key=123
     API_KEY_PATTERN: ClassVar[Pattern] = re.compile(
-        r"\b(?:apikey|token|key|apitoken)=\w+\b",
-        IGNORECASE
+        r"\b(?:apikey|token|key|apitoken)=[a-zA-Z0-9]+\b",IGNORECASE
     )
 
     VALID_PHONE_PATTERNS: ClassVar[list] = [
@@ -331,17 +330,31 @@ class Redactor:
 
     @staticmethod
     def is_valid_hostname(hostname: str) -> bool:
-        if hostname[-1] == ".":
-            hostname = hostname[:-1]
-        if len(hostname) > 253:
+        """Improved hostname validation"""
+        if not hostname or hostname[-1] == "." or len(hostname) > 253:
             return False
 
+        # Split hostname into labels
         labels = hostname.split(".")
-        if re.match(r"[0-9]+$", labels[-1]):
+
+        # Must have at least 2 parts (e.g., example.com)
+        if len(labels) < 2:
             return False
 
-        hostname_regex = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)$", re.IGNORECASE)
-        return all(hostname_regex.match(label) for label in labels)
+        # Check if TLD is numeric
+        if labels[-1].isdigit():
+            return False
+
+        # Validate each label
+        for label in labels:
+            if not label or len(label) > 63:
+                return False
+            if label[0] == "-" or label[-1] == "-":
+                return False
+            if not all(c.isalnum() or c == "-" for c in label):
+                return False
+
+        return True
 
     @staticmethod
     def is_valid_phone(phone: str) -> bool:
@@ -432,13 +445,10 @@ class Redactor:
 
         def replace_match(match):
             value = match.group(0)
-            if self.should_redact_value(value, pattern_type):
-                if pattern_type == "hostname":
-                    return self._generate_unique_hostname()
+            # Always validate and redact for hostnames
+            if (pattern_type == "hostname" and self.is_valid_hostname(value)) or self.should_redact_value(value, pattern_type):
                 return self._generate_unique_mapping(value, pattern_type)
             return value
-
-        return pattern.sub(replace_match, line)
 
         return pattern.sub(replace_match, line)
 

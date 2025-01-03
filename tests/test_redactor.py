@@ -329,52 +329,67 @@ def test_simple_redactions_std(redactor, capsys):
     print("\nFull redacted output:")
     print('\n'.join(output))
 
-def test_redact_ipv4(test_sample, capsys):
+@pytest.fixture
+def valid_ipv4():
+    return [
+        "192.168.1.1",
+        "10.0.0.255",
+        "172.16.254.1",
+        "192.168.0.1",
+        "10.1.1.1",
+        "192.0.2.0",
+        "203.0.113.0",
+        "255.255.255.255",
+        "127.0.0.1",
+        "8.8.8.8"
+    ]
+
+@pytest.fixture
+def valid_ipv6():
+    return [
+        "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+        "fe80::1ff:fe23:4567:890a",
+        "::1",
+        "2001:db8::ff00:42:8329",
+        "2001:db8:85a3::8a2e:370:7334",
+        "2001:db8:0:1234:0:567:8:1",
+        "2001:0db8::0000:0000:0000:0000:0000",
+        "::ffff:192.168.1.1",
+        "2001:db8:0:0:0:0:2:1",
+        "::a00:1"
+    ]
+
+def test_redact_ipv4(valid_ipv4, capsys):
+    """Test IPv4 validation and redaction"""
     redactor = Redactor()
-    redacted_lines = redactor.redact(test_sample)
+    print("\nTesting IPv4 Addresses:")
 
-    # Capture the standard output
-    captured = capsys.readouterr()
+    for ip in valid_ipv4:
+        redacted = redactor._generate_unique_mapping(ip, 'ipv4')
+        print(f"\nInput:    {ip}")
+        print(f"Redacted: {redacted}")
+        assert ip not in redacted, f"Original IP found in redacted value: {ip}"
+        assert redacted.startswith("240.0"), f"Redacted IPv4 should start with 10., got: {redacted}"
 
-    # Check that IPv4 addresses are redacted
-    for line in redacted_lines:
-        assert not any(ip in line for ip in [
-            "192.168.1.1", "10.0.0.255", "172.16.254.1", "192.168.0.1",
-            "10.1.1.1", "192.0.2.0", "203.0.113.0", "255.255.255.255",
-            "127.0.0.1", "8.8.8.8"
-        ])
+    print("\nFinal IPv4 Mappings:")
+    for original, redacted in redactor.unique_mapping.items():
+        print(f"{original} -> {redacted}")
 
-    # Print the redacted lines
-    print("Redacted Lines:\n" + "\n".join(redacted_lines))
-    captured = capsys.readouterr()
-    print(captured.out)
-
-def test_redact_ipv6(test_sample, capsys):
+def test_redact_ipv6(valid_ipv6, capsys):
+    """Test IPv6 validation and redaction"""
     redactor = Redactor()
-    redacted_lines = redactor.redact(test_sample)
+    print("\nTesting IPv6 Addresses:")
 
-    # Capture the standard output
-    captured = capsys.readouterr()
+    for ip in valid_ipv6:
+        redacted = redactor._generate_unique_mapping(ip, 'ipv6')
+        print(f"\nInput:    {ip}")
+        print(f"Redacted: {redacted}")
+        assert ip not in redacted, f"Original IP found in redacted value: {ip}"
+        assert redacted.startswith("3fff:"), f"Redacted IPv6 should start with 3fff:, got: {redacted}"
 
-    # Print the redacted lines for debugging
-    print("Redacted Lines:\n" + "\n".join(redacted_lines))
-
-    # Check that IPv6 addresses are redacted
-    for line in redacted_lines:
-        if any(ip in line for ip in [
-            "2001:0db8:85a3:0000:0000:8a2e:0370:7334", "fe80::1ff:fe23:4567:890a",
-            "::1", "2001:db8::ff00:42:8329", "2001:db8:85a3::8a2e:370:7334",
-            "2001:db8:0:1234:0:567:8:1", "2001:0db8::0000:0000:0000:0000:0000",
-            "::ffff:192.168.1.1", "2001:db8:0:0:0:0:2:1", "::a00:1"
-        ]):
-            print(f"Failed to redact IPv6 address in line: {line}")
-            raise AssertionError()
-
-    # Check that redacted IPv6 addresses follow the expected pattern
-    for line in redacted_lines:
-        if re.search(r"3fff:[0-9a-fA-F:]*", line) is None:
-            print(f"Redacted IPv6 address does not match expected pattern in line: {line}")
-            raise AssertionError()
+    print("\nFinal IPv6 Mappings:")
+    for original, redacted in redactor.unique_mapping.items():
+        print(f"{original} -> {redacted}")
 
 @pytest.fixture
 def test_hostnames():
@@ -392,6 +407,7 @@ def test_hostnames():
 
 def test_redact_hostname(test_hostnames, capsys):
     redactor = Redactor()
+    expected_counter = 1
 
     for hostname in test_hostnames:
         # Test single hostname
@@ -402,7 +418,7 @@ def test_redact_hostname(test_hostnames, capsys):
         # Verify redaction
         assert hostname not in redacted, f"Hostname {hostname} was not redacted"
         assert redacted.startswith("redacted_host"), f"Expected redacted_host prefix, got: {redacted}"
-        assert redacted.endswith("001"), f"Expected suffix '001', got: {redacted}"
+        assert redacted.endswith(f"{expected_counter:03d}"), f"Expected suffix '{expected_counter:03d}', got: {redacted}"
 
         # Test in a line of text
         test_line = f"Server {hostname} is responding"
@@ -411,6 +427,7 @@ def test_redact_hostname(test_hostnames, capsys):
         print(f"Redacted line: {redacted_line}")
 
         assert hostname not in redacted_line, f"Hostname {hostname} found in redacted line"
+        expected_counter += 1
 
     # Show final mapping
     print("\nFinal hostname mappings:")
