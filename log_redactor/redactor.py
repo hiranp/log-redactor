@@ -47,7 +47,7 @@ except ImportError:
 REDACTED_EMAIL_BASE = "redacted.user"
 REDACTED_EMAIL_DOMAIN = "@example.com"
 REDACTED_PHONE_BASE = "(800) 555-"
-REDACTED_PHONE_RANGE_START = 0000
+REDACTED_PHONE_RANGE_START = 0
 REDACTED_PHONE_RANGE_END = 9999
 REDACTED_HOST_BASE = "redacted_host"
 REDACTED_URL_BASE = "redacted.url"
@@ -389,18 +389,25 @@ class Redactor:
     def _generate_unique_url(self, value: str) -> str:
         """Generate a unique redacted URL, keeping the structure of the original URL."""
         parsed_url = urllib.parse.urlparse(value)
-        scheme = parsed_url.scheme
+
+        # Keep original scheme or default to https
+        scheme = parsed_url.scheme if parsed_url.scheme else 'https'
+
+        # Create redacted netloc without port
         netloc = f"{REDACTED_URL_BASE}{self.counter['url']:03}"
+
+        # Add port if present in original URL
         if parsed_url.port:
             netloc += f":{parsed_url.port}"
 
-        path = parsed_url.path
-        query = parsed_url.query
-        redacted_url = f"{scheme}://{netloc}{path}"
-        if query:
-            redacted_url += f"?{query}"
+        # Construct redacted URL
+        redacted_url = f"{scheme}://{netloc}{parsed_url.path}"
+        if parsed_url.query:
+            redacted_url += f"?{parsed_url.query}"
+
         self.counter['url'] += 1
         return redacted_url
+
 
 
     def _generate_unique_api_key(self, value: str) -> str:
